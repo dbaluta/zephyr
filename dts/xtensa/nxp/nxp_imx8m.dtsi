@@ -49,6 +49,15 @@
 			#clock-cells = <3>;
 		};
 
+		sdma3: dma@30e00000 {
+				compatible = "nxp,sdma";
+				reg = <0x30e00000 DT_SIZE_K(64)>;
+				interrupt-parent = <&clic>;
+				interrupts = <42 0 0>;
+				status = "okay";
+			};
+
+
 		iomuxc: iomuxc@30330000 {
 			compatible = "nxp,imx-iomuxc";
 			reg = <0x30330000 DT_SIZE_K(64)>;
