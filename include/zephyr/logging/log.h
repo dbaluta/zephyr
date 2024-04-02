@@ -477,6 +477,7 @@ void z_log_vprintk(const char *fmt, va_list ap);
 #define LOG_WRN(...) (void) 0
 #define LOG_DBG(...) (void) 0
 #define LOG_INF(...) (void) 0
+x
 
 #define LOG_HEXDUMP_ERR(...) (void) 0
 #define LOG_HEXDUMP_WRN(...) (void) 0

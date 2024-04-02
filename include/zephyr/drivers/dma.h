@@ -721,6 +721,15 @@ static inline uint32_t dma_width_index(uint32_t size)
 	return find_msb_set(size);
 }
 
+
+/*static*/ int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
+struct dma_config *config);
+void *dma_nxp_sdma_get_base(const struct device *dev);
+
+/*static*/ int dma_nxp_sdma_start(const struct device *dev, uint32_t channel);
+/*static*/ int dma_nxp_sdma_stop(const struct device *dev, uint32_t channel);
+int dma_nxp_sdma_channel_get(const struct device *dev, uint32_t channel);
+
 /**
  * @brief Look-up generic burst index to be used in registers
  *
