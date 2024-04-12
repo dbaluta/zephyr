@@ -34,6 +34,12 @@ config SOC_MIMX8ML8_A53
 	help
 	  NXP i.MX8MP A53
 
+config SOC_MIMX8ML8_ADSP
+	bool
+	select SOC_MIMX8ML8
+	help
+	  Enable support for NXP i.MX 8MPLUS Audio DSP
+
 config SOC_MIMX8ML8_M7
 	bool
 	select SOC_MIMX8ML8
