@@ -13,11 +13,11 @@ extern struct tr_ctx sdma_tr;
 
 #define DT_DRV_COMPAT nxp_sdma
 
-#define DEV_CONFIG(dev) ((const struct sdma_config *)dev->config)
+#define DEV_CONFIG(dev) ((const struct sdma_dev_cfg *)dev->config)
 #define DEV_BASE(dev) ((SDMAARM_Type *)DEV_CONFIG(dev)->base)
-#define DEV_DATA(dev) ((struct sdma_data *)dev->data)
-#define DEV_CHANNEL_DATA(dev, chan) ((struct sdma_channel *)(&DEV_DATA(dev)->chan_array[chan]))
-#define DEV_SDMA_HANDLE(dev, chan) ((sdma_handle_t *)(&(DEV_CHANNEL_DATA(dev, chan)->dma_handle)))
+#define DEV_DATA(dev) ((struct sdma_dev_data *)dev->data)
+#define DEV_CHANNEL_DATA(dev, chan) ((struct sdma_channel_data *)(&DEV_DATA(dev)->channel_data[chan]))
+#define DEV_SDMA_HANDLE(dev, chan) ((sdma_handle_t *)(&(DEV_CHANNEL_DATA(dev, chan)->handle)))
 
 #define SDMA_MAX_BD	2
 
@@ -30,32 +30,27 @@ void do_log(char const *p)
 {
 }
 
-struct sdma_config {
+void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool transferDone,
+			    uint32_t bdIndex);
+
+struct sdma_dev_cfg {
 	SDMAARM_Type *base;
 };
 
-struct sdma_channel {
-	int8_t id;
-	const struct device *dev;
-	sdma_handle_t dma_handle;
-	sdma_buffer_descriptor_t *BDPool;
-	uint32_t BDCount;
-	sdma_transfer_config_t transfer_config;
-	sdma_peripheral_t peripheral_type;
-	struct dma_status status;
+struct sdma_channel_data {
+	sdma_handle_t handle;
+	sdma_transfer_config_t transferConfig;
+	uint8_t channel;
+
 };
 
-struct sdma_data {
-	struct sdma_channel *chan_array;
-	int num_channels;
-
-	dma_callback_t callback;
-	void *user_data;
+struct sdma_dev_data {
+	struct sdma_channel_data channel_data[32];
 };
 
 void *dma_nxp_sdma_get_base(const struct device *dev)
 {
-	return DEV_BASE(dev);
+	return ((struct sdma_dev_cfg*)dev->config)->base;
 }
 
 #if 0
@@ -67,6 +62,7 @@ static void sdma_isr(const void *parameter)
 void sdma_set_transfer_type(const struct device *dev, uint32_t channel,
 			    struct dma_config *config)
 {
+#if 0
 	sdma_transfer_type_t transfer_type;
 	struct sdma_channel *sdma_chan;
 
@@ -87,22 +83,24 @@ void sdma_set_transfer_type(const struct device *dev, uint32_t channel,
 			break;
 		default:
 			LOG_ERR("channel direction not supported%d\n", config->channel_direction);
-			return -EINVAL;
+			return;
 	}
 
 	sdma_chan->transfer_config.type = transfer_type;
-
-	return 0;
+#endif
+	return;
 }
 
 void sdma_set_peripheral_type(const struct device *dev, uint32_t channel,
 			    struct dma_config *config)
 {
+#if 0
 	struct sdma_channel *sdma_chan;
 
 	sdma_chan = DEV_CHANNEL_DATA(dev, channel);
 
 	sdma_chan->peripheral_type = kSDMA_PeripheralNormal;
+#endif
 }
 
 
@@ -112,10 +110,17 @@ void sdma_set_peripheral_type(const struct device *dev, uint32_t channel,
 
 	handle = DEV_SDMA_HANDLE(dev, channel);
 	SDMA_CreateHandle(handle, DEV_BASE(dev), channel, NULL);
+
 	return 0;
 }
 
+/*static*/ int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
+		       struct dma_config *config)
+{
+	struct sdma_dev_data *data;
+	struct sdma_dev_cfg * config;
 
+#if 0
 /*static*/ int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 		       struct dma_config *config)
 {
@@ -208,7 +213,7 @@ void sdma_set_peripheral_type(const struct device *dev, uint32_t channel,
 			     sdma_chan->transfer_config.type);
 
 	SDMA_SubmitTransfer(handle, &sdma_chan->transfer_config);
-
+#endif
 	return 0;
 }
 
@@ -257,7 +262,7 @@ static int sdma_reload(const struct device *dev, uint32_t channel, uint32_t src,
 	return 0;
 }
 
-static int sdma_get_attribute(const struct device *dev, uint32_t type, uint32_t *val)
+static int dma_nxp_sdma_get_attribute(const struct device *dev, uint32_t type, uint32_t *val)
 {
 	switch(type) {
 		case DMA_ATTR_BUFFER_SIZE_ALIGNMENT:
@@ -290,35 +295,29 @@ static const struct dma_driver_api sdma_api = {
 	.stop = dma_nxp_sdma_stop,
 	.suspend = dma_nxp_sdma_stop,
 	.resume = dma_nxp_sdma_start,
-	.get_status = sdma_get_status,
-	.get_attribute = sdma_get_attribute,
+	.get_status = dma_nxp_sdma_get_status,
+	.get_attribute = dma_nxp_sdma_get_attribute,
 //	.chan_filter = sdma_channel_filter,
 };
 
 /*static*/ int dma_nxp_sdma_init(const struct device *dev)
 {
+	struct sdma_dev_cfg *cfg = dev->cfg;
+	sdma_config_t defconfig
 
-	int i;
-	struct sdma_data *data;
-	sdma_config_t defconfig;
-	const struct sdma_config *cfg;
-	struct sdma_channel *sdma_chan;
+	
+	SDMA_GetDefaultconfig(&defconfig);
+	SDMA_Init(cfg->base, defconfig);
 
-	/* Mark all channels as 'Not Used' */
-	for (i = 0; i < FSL_FEATURE_SDMA_MODULE_CHANNEL; i++) {
-		sdma_chan = DEV_CHANNEL_DATA(dev, i);
-		sdma_chan->id = -1;
-	}
-
-	SDMA_GetDefaultConfig(&defconfig);
-	SDMA_Init(DEV_BASE(dev), &defconfig);
-
+	/*TODO: boot and load new firmeware */
 	return 0;
 }
 
+
+#if 0
 void dma_nxp_do_copy(struct device *dev, int channel, int bdIndex)
 {
-	dma_handle_t *handle;
+	sdma_handle_t *handle;
 	struct sdma_channel *sdma_chan;
 
 	sdma_chan = DEV_CHANNEL_DATA(dev, channel);
@@ -326,18 +325,21 @@ void dma_nxp_do_copy(struct device *dev, int channel, int bdIndex)
 
 	dma_nxp_sdma_callback(handle, sdma_chan, true, bdIndex);
 }
-
+#endif
 void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool transferDone,
+
 			    uint32_t bdIndex)
 {
+#if 0
 	struct sdma_channel *sdma_chan = userData;
-	sdma_buffer_descriptor_t *currentBD = bdPool[bdIndex];
+	sdma_buffer_descriptor_t *currentBD = NULL;//BDPool[bdIndex];
 
 	/* mark current BD as ready for transfer */
 	currentBD->status |= kSDMA_BDStatusDone;
 
 	sdma_chan->status.read_position = currentBD->bufferAddr;
 	sdma_chan->status.pending_length = currentBD->count;
+#endif
 }
 
 static void dma_nxp_sdma_isr(const struct device *dev)
@@ -345,31 +347,15 @@ static void dma_nxp_sdma_isr(const struct device *dev)
 	SDMA_DriverIRQHandler();
 }
 
-#define DMA_NXP_SDMA_CONFIG_FUNC(inst)					\
-	static void dma_nxp_sdma##inst##_irq_config(const struct device *dev) \
-	{								\
-		IRQ_CONNECT(DT_INST_IRQN(inst),				\
-			0,						\
-			dma_nxp_sdma_isr, DEVICE_DT_INST_GET(inst), 0);	\
-		irq_enable(DT_INST_IRQN(inst));				\
-	}
-
-#define SDMA_INIT(inst)								\
-										\
-static const struct sdma_config sdma_config_##inst = {				\
+#define SDMA_INIT(inst)						               \
+static struct sdma_dev_data sdma_data_##inst; 				  	\
+static const struct sdma_dev_cfg sdma_cfg_##inst = {				\
 	.base = DT_INST_REG_ADDR(inst),						\
 };										\
-static struct sdma_channel channels_##inst[FSL_FEATURE_SDMA_MODULE_CHANNEL];	\
 										\
-										\
-static struct sdma_data sdma_data_##inst = {					\
-	.chan_array = channels_##inst,						\
-};										\
-										\
-DEVICE_DT_INST_DEFINE(inst, &dma_nxp_sdma_init, NULL,					\
-		      &sdma_data_##inst, &sdma_config_##inst,			\
+DEVICE_DT_INST_DEFINE(inst, &dma_nxp_sdma_init, NULL,				\
+		      &sdma_data_##inst, &sdma_cfg_##inst,			\
 		      PRE_KERNEL_1, CONFIG_DMA_INIT_PRIORITY,			\
 		      &sdma_api);						\
-DMA_NXP_SDMA_CONFIG_FUNC(inst)
 
 DT_INST_FOREACH_STATUS_OKAY(SDMA_INIT);
