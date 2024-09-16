@@ -7,3 +7,10 @@ config DMA_NXP_SDMA
 	#depends on DT_HAS_NXP_SDMA_ENABLED
 	help
 		Enable driver for NXP's SDMA IP.
+
+config DMA_NXP_SDMA_BD_COUNT
+	int "Number of SDMA buffer descriptors in an allocation pool"
+	default 2
+	help
+          The number of Buffer Descriptors (BD). Each channel has its own statically
+	  allocated pool.
