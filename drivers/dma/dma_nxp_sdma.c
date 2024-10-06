@@ -42,9 +42,15 @@ struct sdma_channel_data {
 	sdma_handle_t handle;
 	sdma_transfer_config_t transfer_cfg;
 	sdma_peripheral_t peripheral;
-	struct dma_block_config *crt_block; /* current block to be transferred */
+
+	sdma_buffer_descriptor_t *bd_pool; /*pre-allocated list of BD used for transfer */
+	uint32_t bd_count; /* number of bd */
+	uint32_t bd_index; /* current bd to be processed */
+	uint32_t capacity; /* total transfer capacity for this channel */
 	struct dma_config *dma_cfg;
 	uint32_t event_source; /* DMA REQ numbers that trigger this channel */
+	struct dma_status stat;
+
 };
 
 struct sdma_dev_data {
@@ -113,12 +119,59 @@ void my_sys_cache_data_flush_all(void){
 	return 0;
 }
 
+static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
+				struct dma_config *config)
+{
+	struct sdma_dev_data *dev_data = dev->data;
+	struct sdma_channel_data *chan_data;
+	sdma_buffer_descriptor_t *crt_bd;
+	struct dma_block_config *block_cfg;
+	int i;
+
+	chan_data = &dev_data->chan[channel];
+
+	/* initilize bd pool */
+	chan_data->bd_pool = &dev_data->bd_pool[channel][0];
+	chan_data->bd_count = config->block_count;
+	chan_data->bd_index = 0;
+
+	memset(chan_data->bd_pool, 0, sizeof(sdma_buffer_descriptor_t) * chan_data->bd_count);
+
+	SDMA_InstallBDMemory(&chan_data->handle, chan_data->bd_pool, chan_data->bd_count);
+
+	crt_bd = chan_data->bd_pool;
+	block_cfg = config->head_block;
+
+	for (i = 0; i < config->block_count; i++) {
+		bool is_last = false;
+		bool is_wrap = false;
+
+		if (i == config->block_count - 1) {
+			is_last = true;
+			is_wrap = true;
+		}
+
+		SDMA_ConfigBufferDescriptor(crt_bd,
+			block_cfg->source_address, block_cfg->dest_address,
+			config->source_data_size, block_cfg->block_size,
+			is_last, true, is_wrap, chan_data->transfer_cfg.type);
+
+		if (i != 0)
+			crt_bd->status &= ~kSDMA_BDStatusDone;
+		
+		chan_data->capacity += block_cfg->block_size;
+		block_cfg = block_cfg->next_block;
+		crt_bd++;
+	}
+}
+				
 /*static*/ int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 		       struct dma_config *config)
 {
 	const struct sdma_dev_cfg *dev_cfg = dev->config;
 	struct sdma_dev_data *dev_data = dev->data;
 	struct sdma_channel_data *chan_data;
+	struct dma_block_config *block_cfg;
 
 	/* TODO: verify channel index is valid */
 	if (channel >= FSL_FEATURE_SDMA_MODULE_CHANNEL) {
@@ -130,20 +183,21 @@ void my_sys_cache_data_flush_all(void){
 
 	sdma_set_transfer_type(config, &chan_data->transfer_cfg.type);
 	sdma_set_peripheral_type(config, &chan_data->peripheral);
+	dma_nxp_sdma_setup_bd(dev, channel, config);
 
-	chan_data->crt_block = config->head_block;
-	chan_data->dma_cfg = config;
 
 	/*TODO read this from dts file */
 	chan_data->event_source = 5; // this is for playback, use 0 for
-				     // apture
+		
+	block_cfg = config->head_block;
+
 	/* prepare first block for transfer ...*/
 	SDMA_PrepareTransfer(&chan_data->transfer_cfg,
-			     chan_data->crt_block->source_address,
-			     chan_data->crt_block->dest_address,
+			     block_cfg->source_address,
+			     block_cfg->dest_address,
 			     config->source_data_size, config->dest_data_size,
 			     /* watermark = */64,
-			     chan_data->crt_block->block_size, chan_data->event_source,
+			     block_cfg->block_size, chan_data->event_source,
 			     chan_data->peripheral, chan_data->transfer_cfg.type);
 	
 	/* ... and submit it to SDMA engine.
@@ -160,11 +214,43 @@ void my_sys_cache_data_flush_all(void){
 }
 
 
-/* static */int dma_nxp_sdma_get_status(const struct device *dev, uint32_t chan_id,
+/* static */int dma_nxp_sdma_get_status(const struct device *dev, uint32_t channel,
 			   struct dma_status *stat)
 {
+	const struct sdma_dev_cfg *dev_cfg = dev->config;
+	struct sdma_dev_data *dev_data = dev->data;
+	struct sdma_channel_data *chan_data;
+	chan_data = &dev_data->chan[channel];
+	sdma_buffer_descriptor_t *bd;
+	uint32_t transferred_bytes = 0;
 	int i;
 
+	bd = chan_data->bd_pool;
+
+	for (i = 0; i < chan_data->bd_count; i++) {
+		if (bd->status & kSDMA_BDStatusDone)
+			transferred_bytes += bd->count;
+	LOG_INF("dma_get_status()  CRTD BD addr %08x %08x ", (int)bd, 
+		(int)bd->bufferAddr);
+
+		bd++;
+	}
+
+	switch(chan_data->transfer_cfg.type) {
+	case MEMORY_TO_PERIPHERAL:
+		stat->pending_length = transferred_bytes;
+		stat->free = chan_data->capacity - transferred_bytes;
+		break;
+	case PERIPHERAL_TO_MEMORY:
+		stat->free = transferred_bytes;
+		stat->pending_length = chan_data->capacity - transferred_bytes;
+		break;
+	default:
+		return -EINVAL;
+	}
+	
+	LOG_INF("dma_get_status() CHAN ID = %d, free %d pending %d", channel,
+		stat->free, stat->pending_length);
 
 	return 0;
 }
@@ -200,14 +286,22 @@ void my_sys_cache_data_flush_all(void){
 	const struct sdma_dev_cfg *dev_cfg = dev->config;
 	struct sdma_dev_data *dev_data = dev->data;
 	struct sdma_channel_data *chan_data;
+	sdma_buffer_descriptor_t *bd;
 
 	chan_data = &dev_data->chan[channel];
-	chan_data->crt_block = chan_data->crt_block->next_block;
 
-	LOG_INF("Sending next block %x dest %x",
-			     chan_data->crt_block->source_address,
-			     chan_data->crt_block->dest_address);
+	LOG_INF("chan %d Sending next block next_bd %d",
+		channel, chan_data->bd_index);
 
+	chan_data->bd_index = (chan_data->bd_index + 1) % chan_data->bd_count;
+	bd = &chan_data->bd_pool[chan_data->bd_index];
+	sys_cache_data_invd_all();
+
+	bd->status |= kSDMA_BDStatusDone;
+	SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
+	SDMA_StartChannelSoftware(dev_cfg->base, channel);
+	
+#if 0
 	SDMA_PrepareTransfer(&chan_data->transfer_cfg,
 			     chan_data->crt_block->source_address,
 			     chan_data->crt_block->dest_address,
@@ -220,9 +314,20 @@ void my_sys_cache_data_flush_all(void){
 	chan_data->transfer_cfg.isEventIgnore = false;
 	chan_data->transfer_cfg.isSoftTriggerIgnore = false;
 
+///	SDMA_SetChannelPriority(dev_cfg->base, channel, 0);
+	//SDMA_StartChannelSoftware(dev_cfg->base, channel);
+	 
+	LOG_INF("Submit transfer handle %x transfer cfg %x block size %d",
+		&chan_data->handle, &chan_data->transfer_cfg, chan_data->dma_cfg->dest_data_size);
+
 	SDMA_SubmitTransfer(&chan_data->handle, &chan_data->transfer_cfg);
 
-	sys_cache_data_flush_all();
+	//SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
+	SDMA_StartChannelSoftware(dev_cfg->base, channel);
+	
+
+	//sys_cache_data_flush_all();
+#endif
 	return 0;
 }
 
@@ -291,14 +396,20 @@ void dma_nxp_sdma_print_ccb(sdma_channel_control_t *ccb, int i)
 {
 	sdma_buffer_descriptor_t *bd;
 
+
+	bd = (sdma_buffer_descriptor_t *)ccb->baseBDAddr;
+
+	sys_cache_data_invd_all();
+
+
 	LOG_INF("== CCB %08x %d", ccb, i);
 	LOG_INF("  crt_bd %08x", ccb->currentBDAddr);
 	LOG_INF("  base  %08x", ccb->baseBDAddr);
 	LOG_INF("  channelDesc %08x", ccb->channelDesc);
 	LOG_INF("  channelStatus %08x", ccb->status);
 
-	bd = (sdma_buffer_descriptor_t *) ccb->currentBDAddr;
-	LOG_INF("CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd->command,
+
+	LOG_INF("1 -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd->command,
 		bd->status & kSDMA_BDStatusLast ? 1 : 0,
 		bd->status & kSDMA_BDStatusError ? 1 : 0,
 		bd->status & kSDMA_BDStatusInterrupt? 1 : 0,
@@ -307,6 +418,23 @@ void dma_nxp_sdma_print_ccb(sdma_channel_control_t *ccb, int i)
 		bd->status & kSDMA_BDStatusWrap? 1 : 0,
 		bd->count);
 	LOG_INF("BD addr %08x", bd->bufferAddr);
+	LOG_INF("BD EXTaddr %08x", bd->extendBufferAddr);
+
+
+	if (i == 1) {
+		bd++;
+
+		LOG_INF("2 -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd->command,
+			bd->status & kSDMA_BDStatusLast ? 1 : 0,
+			bd->status & kSDMA_BDStatusError ? 1 : 0,
+			bd->status & kSDMA_BDStatusInterrupt? 1 : 0,
+			bd->status & kSDMA_BDStatusContinuous? 1 : 0,
+			bd->status & kSDMA_BDStatusDone? 1 : 0,
+			bd->status & kSDMA_BDStatusWrap? 1 : 0,
+			bd->count);
+		LOG_INF("BD addr %08x", bd->bufferAddr);
+		LOG_INF("BD EXTaddr %08x", bd->extendBufferAddr);
+	}
 }
 
 void dma_nxp_sdma_dump_info(const struct device *dev, const char *str)
