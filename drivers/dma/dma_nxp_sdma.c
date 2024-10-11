@@ -63,12 +63,10 @@ void *dma_nxp_sdma_get_base(const struct device *dev)
 	return ((struct sdma_dev_cfg*)dev->config)->base;
 }
 
-#if 0
-static void sdma_isr(const void *parameter)
+static void dma_nxp_sdma_isr(const void *data)
 {
-
+	LOG_INF("ISR called ....");
 }
-#endif
 
 void sdma_set_transfer_type(struct dma_config *config, sdma_transfer_type_t *type)
 {
@@ -483,10 +481,9 @@ void dma_nxp_sdma_print_context(const struct device *dev, int chan,
 	dma_nxp_sdma_print_regs(dev, "after init");
 	LOG_INF("dma_nxp_sdma_init");
 
-	return 0;
 	/* configure interrupts */
-
 	cfg->irq_config();
+
 	/*TODO: boot and load new firmeware */
 	return 0;
 }
@@ -520,20 +517,30 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool transferD
 #endif
 }
 
+#if 0
 static void dma_nxp_sdma_isr(const struct device *dev)
 {
 	SDMA_DriverIRQHandler();
 }
+#endif
 
-#define SDMA_INIT(inst)						               \
-static struct sdma_dev_data sdma_data_##inst; 				  	\
-static const struct sdma_dev_cfg sdma_cfg_##inst = {				\
-	.base = DT_INST_REG_ADDR(inst),						\
-};										\
-										\
-DEVICE_DT_INST_DEFINE(inst, &dma_nxp_sdma_init, NULL,				\
-		      &sdma_data_##inst, &sdma_cfg_##inst,			\
-		      PRE_KERNEL_1, CONFIG_DMA_INIT_PRIORITY,			\
-		      &sdma_api);						\
+#define DMA_NXP_SDMA_INIT(inst)							\
+	static struct sdma_dev_data sdma_data_##inst; 				\
+	static void dma_nxp_sdma_##inst_irq_config(void);	\
+	static const struct sdma_dev_cfg sdma_cfg_##inst = {			\
+		.base = DT_INST_REG_ADDR(inst),					\
+		.irq_config = dma_nxp_sdma_##inst_irq_config,			\
+	};									\
+	static void dma_nxp_sdma_##inst_irq_config(void)	\
+	{									\
+		IRQ_CONNECT(DT_INST_IRQN(inst),					\
+			    DT_INST_IRQ_(inst, priority),			\
+			    dma_nxp_sdma_isr, DEVICE_DT_INST_GET(inst), 0);	\
+		irq_enable(DT_INST_IRQN(inst));					\
+	}									\
+	DEVICE_DT_INST_DEFINE(inst, &dma_nxp_sdma_init, NULL,			\
+			      &sdma_data_##inst, &sdma_cfg_##inst,		\
+			      PRE_KERNEL_1, CONFIG_DMA_INIT_PRIORITY,		\
+			      &sdma_api);					\
 
-DT_INST_FOREACH_STATUS_OKAY(SDMA_INIT);
+DT_INST_FOREACH_STATUS_OKAY(DMA_NXP_SDMA_INIT);
