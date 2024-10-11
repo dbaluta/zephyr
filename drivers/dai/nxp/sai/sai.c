@@ -93,6 +93,8 @@ void sai_isr(const void *parameter)
 	dev = parameter;
 	data = dev->data;
 
+	LOG_INF("SAI ISR");
+
 	/* check for TX FIFO error */
 	if (SAI_TX_RX_STATUS_IS_SET(DAI_DIR_TX, data->regmap, kSAI_FIFOErrorFlag)) {
 		LOG_WRN("FIFO underrun detected");

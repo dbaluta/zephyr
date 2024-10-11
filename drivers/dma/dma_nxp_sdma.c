@@ -13,6 +13,7 @@
 extern struct tr_ctx sdma_tr;
 
 #define DMA_NXP_SDMA_BD_COUNT 2
+#define SDMA_MAX_CHAN 32
 
 #define DT_DRV_COMPAT nxp_sdma
 
@@ -24,6 +25,7 @@ extern struct tr_ctx sdma_tr;
 
 #define SDMA_MAX_BD	2
 
+uint32_t SDMA_GetInstance(SDMAARM_Type *base);
 void do_log(char const *p) 
 {
 }
@@ -54,6 +56,8 @@ struct sdma_channel_data {
 };
 
 struct sdma_dev_data {
+	struct dma_context dma_ctx;
+	atomic_t *channels_atomic;
 	struct sdma_channel_data chan[32];
 	sdma_buffer_descriptor_t bd_pool[32][DMA_NXP_SDMA_BD_COUNT] __aligned(64);
 };
@@ -66,6 +70,7 @@ void *dma_nxp_sdma_get_base(const struct device *dev)
 static void dma_nxp_sdma_isr(const void *data)
 {
 	LOG_INF("ISR called ....");
+	SDMA3_DriverIRQHandler();
 }
 
 void sdma_set_transfer_type(struct dma_config *config, sdma_transfer_type_t *type)
@@ -99,6 +104,13 @@ void my_sys_cache_data_flush_all(void){
 	sys_cache_data_flush_all();
 }
 
+void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferDone, 
+			   uint32_t bdIndex)
+{
+	LOG_INF("callback Index = %d", bdIndex);
+}
+
+
 /*static */int dma_nxp_sdma_channel_get(const struct device *dev, uint32_t channel)
 
 {
@@ -110,6 +122,10 @@ void my_sys_cache_data_flush_all(void){
 	SDMA_CreateHandle(&chan_data->handle, DEV_BASE(dev), channel, &sdma_contexts[channel]);
 	sys_cache_data_flush_all();
 
+
+	SDMA_SetCallback(&chan_data->handle, dma_nxp_sdma_callback, dev);
+
+	LOG_INF("Get intance %d", SDMA_GetInstance(dma_nxp_sdma_get_base(dev)));
 	LOG_INF("Created handle for chan %d %x sizeof(contexts) %d addr %08x %08x\n",
 		channel, (int)&chan_data->handle, sizeof(sdma_contexts[channel]),
 		&sdma_contexts[channel], chan_data->handle.context);
@@ -177,6 +193,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 		return -EINVAL;
 	}
 
+	dma_nxp_sdma_channel_get(dev, channel);
+
 	chan_data = &dev_data->chan[channel];
 
 	sdma_set_transfer_type(config, &chan_data->transfer_cfg.type);
@@ -228,8 +246,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	for (i = 0; i < chan_data->bd_count; i++) {
 		if (bd->status & kSDMA_BDStatusDone)
 			transferred_bytes += bd->count;
-	LOG_INF("dma_get_status()  CRTD BD addr %08x %08x ", (int)bd, 
-		(int)bd->bufferAddr);
+	LOG_INF("dma_get_status()  CRTD BD addr i = %d bd: %08x status: %d", (int)bd, 
+		(int)bd->bufferAddr, (int)bd->status&  kSDMA_BDStatusDone);
 
 		bd++;
 	}
@@ -348,12 +366,15 @@ static int dma_nxp_sdma_get_attribute(const struct device *dev, uint32_t type, u
 	return 0;
 }
 
-#if 0
 static bool sdma_channel_filter(const struct device *dev, int chan_id, void *param)
 {
-	return false;
+	LOG_INF("sdma_chan filter chan_id %d", chan_id);
+	/* chan 0 is used from boot channel */
+	if (chan_id == 0)
+		return false;
+
+	return true;
 }
-#endif
 
 static const struct dma_driver_api sdma_api = {
 	.reload = dma_nxp_sdma_reload,
@@ -364,7 +385,7 @@ static const struct dma_driver_api sdma_api = {
 	.resume = dma_nxp_sdma_start,
 	.get_status = dma_nxp_sdma_get_status,
 	.get_attribute = dma_nxp_sdma_get_attribute,
-//	.chan_filter = sdma_channel_filter,
+	.chan_filter = sdma_channel_filter,
 };
 
 void dma_nxp_sdma_print_regs(const struct device *dev, const char *str)
@@ -470,8 +491,13 @@ void dma_nxp_sdma_print_context(const struct device *dev, int chan,
 
 /*static*/ int dma_nxp_sdma_init(const struct device *dev)
 {
+	struct sdma_dev_data *data = dev->data;
 	const struct sdma_dev_cfg *cfg = dev->config;
 	sdma_config_t defconfig;
+
+	data->dma_ctx.magic = DMA_MAGIC;
+	data->dma_ctx.dma_channels = SDMA_MAX_CHAN;
+	data->dma_ctx.atomic = data->channels_atomic;
 
 	SDMA_GetDefaultConfig(&defconfig);
 	defconfig.ratio = kSDMA_ARMClockFreq;
@@ -479,8 +505,8 @@ void dma_nxp_sdma_print_context(const struct device *dev, int chan,
 	SDMA_Init(cfg->base, &defconfig);
 	sys_cache_data_flush_all();
 	dma_nxp_sdma_print_regs(dev, "after init");
-	LOG_INF("dma_nxp_sdma_init");
-
+	LOG_INF("dma_nxp_sdma_init %x", (int)dma_nxp_sdma_isr);
+	LOG_INF("Get intance %d", SDMA_GetInstance(dma_nxp_sdma_get_base(dev)));
 	/* configure interrupts */
 	cfg->irq_config();
 
@@ -501,11 +527,12 @@ void dma_nxp_do_copy(struct device *dev, int channel, int bdIndex)
 	dma_nxp_sdma_callback(handle, sdma_chan, true, bdIndex);
 }
 #endif
+
+#if 0
 void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool transferDone,
 
 			    uint32_t bdIndex)
 {
-#if 0
 	struct sdma_channel *sdma_chan = userData;
 	sdma_buffer_descriptor_t *currentBD = NULL;//BDPool[bdIndex];
 
@@ -514,8 +541,8 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool transferD
 
 	sdma_chan->status.read_position = currentBD->bufferAddr;
 	sdma_chan->status.pending_length = currentBD->count;
-#endif
 }
+#endif
 
 #if 0
 static void dma_nxp_sdma_isr(const struct device *dev)
@@ -525,7 +552,10 @@ static void dma_nxp_sdma_isr(const struct device *dev)
 #endif
 
 #define DMA_NXP_SDMA_INIT(inst)							\
-	static struct sdma_dev_data sdma_data_##inst; 				\
+	static ATOMIC_DEFINE(dma_nxp_sdma_channels_atomic_##inst, SDMA_MAX_CHAN); \
+	static struct sdma_dev_data sdma_data_##inst = { 		\
+		.channels_atomic = dma_nxp_sdma_channels_atomic_##inst,		\
+	};									\
 	static void dma_nxp_sdma_##inst_irq_config(void);	\
 	static const struct sdma_dev_cfg sdma_cfg_##inst = {			\
 		.base = DT_INST_REG_ADDR(inst),					\
