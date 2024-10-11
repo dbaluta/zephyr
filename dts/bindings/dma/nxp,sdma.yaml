@@ -1,0 +1,22 @@
+# Copyright 2024 NXP
+# SPDX-License-Identifier: Apache-2.0
+
+description: NXP enhanced Direct Memory Access (eDMA) node
+
+compatible: "nxp,sdma"
+
+include: [dma-controller.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+  "#dma-cells":
+    const: 2
+
+# IMPORTANT: if your EDMA version doesn't support channel MUX-ing please
+# leave the MUX cell as 0. This is not mandatory for the driver as the
+# MUX value will be ignored in this case but all entities using EDMA should
+# be consistent in this regard.
+dma-cells:
+  - channel
+  - mux

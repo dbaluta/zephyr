@@ -228,8 +228,10 @@
 #include <fsl_irqsteer.h>
 #include <zephyr/cache.h>
 #include <zephyr/sw_isr_table.h>
-
+#include <zephyr/logging/log.h>
 #include "sw_isr_common.h"
+
+LOG_MODULE_REGISTER(intc_irqsteer);
 
 /* used for driver binding */
 #define DT_DRV_COMPAT nxp_irqsteer_intc
@@ -409,9 +411,12 @@ static void irqsteer_isr_dispatcher(const void *data)
 	int system_irq, zephyr_irq, i;
 	uint64_t status;
 
+
 	dispatcher = (struct irqsteer_dispatcher *)data;
 	cfg = dispatcher->dev->config;
 
+
+	LOG_INF("irqsteer_isr .... GOT IRQ dispatcher %d", dispatcher->master_index);
 	/* fetch master interrupts status */
 	status = IRQSTEER_GetMasterInterruptsStatus(UINT_TO_IRQSTEER(cfg->regmap_phys),
 						    dispatcher->master_index);
@@ -426,9 +431,14 @@ static void irqsteer_isr_dispatcher(const void *data)
 			/* convert system INTID to a Zephyr INTID */
 			zephyr_irq = to_zephyr_irq(cfg->regmap_phys, system_irq, dispatcher);
 
+			LOG_INF("system ID %d zephyr id %x",
+				system_irq, zephyr_irq);
+
 			/* compute index in the SW ISR table */
 			table_idx = z_get_sw_isr_table_idx(zephyr_irq);
 
+			LOG_INF("table idx %d %x", table_idx, 
+				(int)_sw_isr_table[table_idx].isr);
 			/* call child's ISR */
 			_sw_isr_table[table_idx].isr(_sw_isr_table[table_idx].arg);
 		}
@@ -457,6 +467,7 @@ static void irqsteer_enable_dispatchers(const struct device *dev)
 
 static int irqsteer_init(const struct device *dev)
 {
+	LOG_INF(".... irqsteer init!...");
 	IRQSTEER_REGISTER_DISPATCHERS(DT_NODELABEL(irqsteer));
 
 	/* enable all dispatchers */
