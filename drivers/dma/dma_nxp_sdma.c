@@ -41,6 +41,7 @@ struct sdma_dev_cfg {
 };
 
 struct sdma_channel_data {
+	struct device *dev;
 	sdma_handle_t handle;
 	sdma_transfer_config_t transfer_cfg;
 	sdma_peripheral_t peripheral;
@@ -69,8 +70,19 @@ void *dma_nxp_sdma_get_base(const struct device *dev)
 
 static void dma_nxp_sdma_isr(const void *data)
 {
-	LOG_INF("ISR called ....");
+	struct device *dev = data;
+	static int  count = 1;
+	
+
+	SDMAARM_Type *base = dma_nxp_sdma_get_base(dev);
+	if (count < 10 )
+		LOG_INF("ISR INTR: %08x", base->INTR);
+//	LOG_INF("ISR called ....");
 	SDMA3_DriverIRQHandler();
+	sys_cache_data_flush_all();
+
+	//dma_nxp_sdma_dump_info(dev, "ISR");
+	count++;
 }
 
 void sdma_set_transfer_type(struct dma_config *config, sdma_transfer_type_t *type)
@@ -107,7 +119,24 @@ void my_sys_cache_data_flush_all(void){
 void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferDone, 
 			   uint32_t bdIndex)
 {
-	LOG_INF("callback Index = %d", bdIndex);
+
+	struct sdma_dev_cfg *dev_cfg;
+	struct sdma_channel_data *chan_data = userData;
+
+	dev_cfg = chan_data->dev->config;
+
+	sdma_buffer_descriptor_t *bd;
+	sys_cache_data_invd_all();
+	
+	chan_data->bd_index = bdIndex;
+
+	//chan_data->bd_index = (chan_data->bd_index + 1) % chan_data->bd_count;
+	bd = &chan_data->bd_pool[bdIndex];
+
+	bd->status |= (uint8_t)kSDMA_BDStatusDone;
+	sys_cache_data_flush_all();
+
+	LOG_INF("callback Index = %d bd = %x", bdIndex, bd);
 }
 
 
@@ -123,7 +152,7 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	sys_cache_data_flush_all();
 
 
-	SDMA_SetCallback(&chan_data->handle, dma_nxp_sdma_callback, dev);
+	SDMA_SetCallback(&chan_data->handle, dma_nxp_sdma_callback, chan_data);
 
 	LOG_INF("Get intance %d", SDMA_GetInstance(dma_nxp_sdma_get_base(dev)));
 	LOG_INF("Created handle for chan %d %x sizeof(contexts) %d addr %08x %08x\n",
@@ -164,15 +193,15 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 			is_last = true;
 			is_wrap = true;
 		}
-
+		LOG_INF("CONFIG i = %d, block_size = %d", block_cfg->block_size);
 		SDMA_ConfigBufferDescriptor(crt_bd,
 			block_cfg->source_address, block_cfg->dest_address,
 			config->source_data_size, block_cfg->block_size,
 			is_last, true, is_wrap, chan_data->transfer_cfg.type);
-
+#if 0
 		if (i != 0)
 			crt_bd->status &= ~kSDMA_BDStatusDone;
-		
+#endif		
 		chan_data->capacity += block_cfg->block_size;
 		block_cfg = block_cfg->next_block;
 		crt_bd++;
@@ -196,11 +225,13 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	dma_nxp_sdma_channel_get(dev, channel);
 
 	chan_data = &dev_data->chan[channel];
+	chan_data->dev = dev;
 
 	sdma_set_transfer_type(config, &chan_data->transfer_cfg.type);
 	sdma_set_peripheral_type(config, &chan_data->peripheral);
 	dma_nxp_sdma_setup_bd(dev, channel, config);
 
+	sys_cache_data_flush_all();
 
 	/*TODO read this from dts file */
 	chan_data->event_source = 5; // this is for playback, use 0 for
@@ -226,6 +257,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 
 	LOG_INF("CONFIG: ch %d context %08x", channel, chan_data->handle.context);
 	sys_cache_data_flush_all();
+
+	dma_nxp_sdma_dump_info(dev, "CONFIG");
 	return 0;
 }
 
@@ -240,22 +273,37 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	sdma_buffer_descriptor_t *bd;
 	uint32_t transferred_bytes = 0;
 	int i;
+	static int count = 1;
 
 	bd = chan_data->bd_pool;
 
-	for (i = 0; i < chan_data->bd_count; i++) {
-		if (bd->status & kSDMA_BDStatusDone)
-			transferred_bytes += bd->count;
-	LOG_INF("dma_get_status()  CRTD BD addr i = %d bd: %08x status: %d", (int)bd, 
-		(int)bd->bufferAddr, (int)bd->status&  kSDMA_BDStatusDone);
 
+	sys_cache_data_invd_all();
+	for (i = 0; i < chan_data->bd_count; i++) {
+		if (bd->status & kSDMA_BDStatusDone) {
+			transferred_bytes += bd->count;
+		}
+#if 0
+		if ((count  % 100) == 0) {
+			LOG_INF("dma_get_status()  CRTD BD addr i = %d bd: %08x status: %d", i, 
+				(int)bd->bufferAddr, (int)bd->status&  kSDMA_BDStatusDone);
+		}
+#endif
 		bd++;
 	}
+
+#if 0
+	if (count == 100)
+		dma_nxp_sdma_dump_info(dev, "GET STATUS");
+#endif
+
+	transferred_bytes /= 2;
 
 	switch(chan_data->transfer_cfg.type) {
 	case MEMORY_TO_PERIPHERAL:
 		stat->pending_length = transferred_bytes;
 		stat->free = chan_data->capacity - transferred_bytes;
+
 		break;
 	case PERIPHERAL_TO_MEMORY:
 		stat->free = transferred_bytes;
@@ -264,9 +312,14 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	default:
 		return -EINVAL;
 	}
-	
-	LOG_INF("dma_get_status() CHAN ID = %d, free %d pending %d", channel,
-		stat->free, stat->pending_length);
+
+#if 0
+	if ((count % 100) == 0) {
+		LOG_INF("dma_get_status() CHAN ID = %d, free %d pending %d", channel,
+			stat->free, stat->pending_length);
+	}
+#endif
+	count++;
 
 	return 0;
 }
@@ -291,6 +344,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
 	SDMA_StartChannelSoftware(dev_cfg->base, channel);
 	
+
+	//dma_nxp_sdma_print_regs(dev, "AT START");
 	//SDMA_StartTransfer(DEV_SDMA_HANDLE(dev, channel));
 	return 0;
 }
@@ -303,20 +358,43 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	struct sdma_dev_data *dev_data = dev->data;
 	struct sdma_channel_data *chan_data;
 	sdma_buffer_descriptor_t *bd;
+	static int countx = 0;
 
 	chan_data = &dev_data->chan[channel];
 
-	LOG_INF("chan %d Sending next block next_bd %d",
-		channel, chan_data->bd_index);
+#if 0
+	if ((countx % 100) == 0) {
+		LOG_INF("chan %d Sending next block next_bd %d",
+			channel, chan_data->bd_index);
+	}
+#endif
 
-	chan_data->bd_index = (chan_data->bd_index + 1) % chan_data->bd_count;
+
+	//sys_cache_data_invd_all();
+	//chan_data->bd_index = (chan_data->bd_index + 1) % chan_data->bd_count;
 	bd = &chan_data->bd_pool[chan_data->bd_index];
-	sys_cache_data_invd_all();
 
-	bd->status |= kSDMA_BDStatusDone;
-	SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
+	//bd->status |= (uint8_t)kSDMA_BDStatusDone;
+	//sys_cache_data_flush_all();
+
+	//sys_cache_data_flush_range(bd, sizeof(*bd));
+
+
 	SDMA_StartChannelSoftware(dev_cfg->base, channel);
+	if (countx < 4)  {
+		LOG_INF("RELOAD ch %d base %x Current bd to send = %d %x status %x", channel,
+			dev_cfg->base, chan_data->bd_index, bd, bd->status & kSDMA_BDStatusDone);
+	//	dma_nxp_sdma_dump_info(dev, "RELOAD");
+		dma_nxp_sdma_print_regs(dev, "regs reload");
+	}
+
+	countx++;
+
+	//SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
+	//SDMA_StartChannelSoftware(dev_cfg->base, channel);
 	
+
+	//dma_nxp_sdma_print_regs(dev, "after next channel SW");
 #if 0
 	SDMA_PrepareTransfer(&chan_data->transfer_cfg,
 			     chan_data->crt_block->source_address,
@@ -392,23 +470,23 @@ void dma_nxp_sdma_print_regs(const struct device *dev, const char *str)
 {
 	SDMAARM_Type *base = dma_nxp_sdma_get_base(dev);
 	LOG_INF(" === %s === ", str);
-	LOG_INF("MCOPTR: %08x", base->MC0PTR);
-	LOG_INF("INTR: %08x", base->INTR);
+//	LOG_INF("MCOPTR: %08x", base->MC0PTR);
+	//LOG_INF("INTR: %08x", base->INTR);
 	LOG_INF("STOP_STAT: %08x", base->STOP_STAT);
 	LOG_INF("HSTART: %08x", base->HSTART);
-	LOG_INF("EVTOVR: %08x", base->EVTOVR);
-	LOG_INF("DSPOVR: %08x", base->DSPOVR);
+	//LOG_INF("EVTOVR: %08x", base->EVTOVR);
+//	LOG_INF("DSPOVR: %08x", base->DSPOVR);
 	LOG_INF("HOSTOVR: %08x", base->HOSTOVR);
 
-	LOG_INF("EVTPEND: %08x", base->EVTPEND);
-	LOG_INF("INTRMASK: %08x", base->INTRMASK);
-	LOG_INF("CONFIG: %08x", base->CONFIG);
-	LOG_INF("CHN0ADDR: %08x", base->CHN0ADDR);
-	LOG_INF("EVTMIRROR %08x", base->EVT_MIRROR);
-	LOG_INF("CHANRPI[0]: %08x", base->SDMA_CHNPRI[0]);
-	LOG_INF("CHANRPI[1]: %08x", base->SDMA_CHNPRI[1]);
-	LOG_INF("CHNENBL[0]: %08x", base->CHNENBL[0]);
-	LOG_INF("CHNENBL[5]: %08x", base->CHNENBL[5]);
+	//LOG_INF("EVTPEND: %08x", base->EVTPEND);
+	//LOG_INF("INTRMASK: %08x", base->INTRMASK);
+//	LOG_INF("CONFIG: %08x", base->CONFIG);
+//	LOG_INF("CHN0ADDR: %08x", base->CHN0ADDR);
+//	LOG_INF("EVTMIRROR %08x", base->EVT_MIRROR);
+//	LOG_INF("CHANRPI[0]: %08x", base->SDMA_CHNPRI[0]);
+//	LOG_INF("CHANRPI[1]: %08x", base->SDMA_CHNPRI[1]);
+//	LOG_INF("CHNENBL[0]: %08x", base->CHNENBL[0]);
+//	LOG_INF("CHNENBL[5]: %08x", base->CHNENBL[5]);
 }
 
 void dma_nxp_sdma_print_ccb(sdma_channel_control_t *ccb, int i)
@@ -428,7 +506,7 @@ void dma_nxp_sdma_print_ccb(sdma_channel_control_t *ccb, int i)
 	LOG_INF("  channelStatus %08x", ccb->status);
 
 
-	LOG_INF("1 -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd->command,
+	LOG_INF("BD: 1 (%x) -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd, bd->command,
 		bd->status & kSDMA_BDStatusLast ? 1 : 0,
 		bd->status & kSDMA_BDStatusError ? 1 : 0,
 		bd->status & kSDMA_BDStatusInterrupt? 1 : 0,
@@ -443,7 +521,7 @@ void dma_nxp_sdma_print_ccb(sdma_channel_control_t *ccb, int i)
 	if (i == 1) {
 		bd++;
 
-		LOG_INF("2 -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd->command,
+		LOG_INF("BD: 2 (%x) -> CMD: %08x STATUS L %d, ER %d I %d C %d D %d W %d count %d", bd, bd->command,
 			bd->status & kSDMA_BDStatusLast ? 1 : 0,
 			bd->status & kSDMA_BDStatusError ? 1 : 0,
 			bd->status & kSDMA_BDStatusInterrupt? 1 : 0,
@@ -462,7 +540,8 @@ void dma_nxp_sdma_dump_info(const struct device *dev, const char *str)
 	sdma_channel_control_t *ccb0 = base->MC0PTR;
 	sdma_channel_control_t *ccb1 = ccb0;
 
-	dma_nxp_sdma_print_ccb(ccb0, 0);
+	LOG_INF("=== %s==== ", str);
+	//dma_nxp_sdma_print_ccb(ccb0, 0);
 	ccb1++;
 	dma_nxp_sdma_print_ccb(ccb1, 1);
 }
@@ -504,7 +583,7 @@ void dma_nxp_sdma_print_context(const struct device *dev, int chan,
 
 	SDMA_Init(cfg->base, &defconfig);
 	sys_cache_data_flush_all();
-	dma_nxp_sdma_print_regs(dev, "after init");
+	//dma_nxp_sdma_print_regs(dev, "after init");
 	LOG_INF("dma_nxp_sdma_init %x", (int)dma_nxp_sdma_isr);
 	LOG_INF("Get intance %d", SDMA_GetInstance(dma_nxp_sdma_get_base(dev)));
 	/* configure interrupts */

@@ -17,7 +17,7 @@
 			device_type = "cpu";
 			compatible = "cdns,tensilica-xtensa-lx6";
 			reg = <0>;
-
+			
 			#address-cells = <1>;
 			#size-cells = <0>;
 
@@ -93,6 +93,11 @@
 		sai3: dai@30c30000 {
 			compatible = "nxp,dai-sai";
 			reg = <0x30c30000 DT_SIZE_K(64)>;
+
+			mclk-is-output;
+			clocks = <&ccm IMX_CCM_SAI3_CLK 0 0>;
+			clock-names = "mclk1";
+
 			interrupt-parent = <&master1>;
 			interrupts = <28>;
 			dai-index = <3>;

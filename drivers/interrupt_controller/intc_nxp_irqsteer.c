@@ -416,7 +416,7 @@ static void irqsteer_isr_dispatcher(const void *data)
 	cfg = dispatcher->dev->config;
 
 
-	LOG_INF("irqsteer_isr .... GOT IRQ dispatcher %d", dispatcher->master_index);
+	//LOG_INF("irqsteer_isr .... GOT IRQ dispatcher %d", dispatcher->master_index);
 	/* fetch master interrupts status */
 	status = IRQSTEER_GetMasterInterruptsStatus(UINT_TO_IRQSTEER(cfg->regmap_phys),
 						    dispatcher->master_index);

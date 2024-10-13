@@ -63,7 +63,7 @@ static int sai_mclk_config(const struct device *dev,
 	ret = get_mclk_rate(&cfg->clk_data, bclk_source, &mclk_rate);
 	if (ret < 0) {
 		LOG_ERR("failed to query MCLK's rate");
-		return ret;
+		//return ret;
 	}
 
 	LOG_DBG("source MCLK is %u", mclk_rate);
@@ -75,11 +75,14 @@ static int sai_mclk_config(const struct device *dev,
 
 	/* target MCLK rate */
 	mclk_config.mclkHz = bespoke->mclk_rate;
-
+	mclk_config.mclkSourceClkHz = bespoke->mclk_rate;
+	LOG_INF("target %d source %d OUT %d",
+		mclk_config.mclkHz, mclk_config.mclkSourceClkHz,
+		mclk_config.mclkOutputEnable);
 	/* commit configuration */
 	SAI_SetMasterClockConfig(UINT_TO_I2S(data->regmap), &mclk_config);
 
-	set_msel(data->regmap, msel);
+	//set_msel(data->regmap, msel);
 
 	return 0;
 }
@@ -394,6 +397,9 @@ static int sai_config_set(const struct device *dev,
 		SAI_RxSetBitClockRate(UINT_TO_I2S(data->regmap), bespoke->mclk_rate,
 				      bespoke->fsync_rate, bespoke->tdm_slot_width,
 				      bespoke->tdm_slots);
+
+			LOG_INF("RATE: mclk_rate %d, fsync %d slot %d",
+				bespoke->mclk_rate, bespoke->fsync_rate, bespoke->tdm_slots);
 	}
 
 #ifdef CONFIG_SAI_HAS_MCLK_CONFIG_OPTION
@@ -721,18 +727,24 @@ static int sai_trigger_start(const struct device *dev,
 		goto out_enable_dline;
 	}
 
-	LOG_DBG("start on direction %d", dir);
+	LOG_INF("start on direction %d", dir);
 
 	sai_tx_rx_sw_reset(data, cfg, dir);
 
+#if 1
 	/* enable error interrupt */
 	SAI_TX_RX_ENABLE_DISABLE_IRQ(dir, data->regmap,
 				     kSAI_FIFOErrorInterruptEnable, true);
+#endif
+
+	LOG_INF("SAI.. %x, dline %d chan %d", 
+	       (int)data->regmap, cfg->tx_dline, data->cfg.channels);
 
 	/* avoid initial underrun by writing a frame's worth of 0s */
 	if (dir == DAI_DIR_TX) {
 		for (i = 0; i < data->cfg.channels; i++) {
 			SAI_WriteData(UINT_TO_I2S(data->regmap), cfg->tx_dline, 0x0);
+
 		}
 	}
 
