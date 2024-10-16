@@ -56,7 +56,7 @@ static int sai_mclk_config(const struct device *dev,
 	ret = get_msel(bclk_source, &msel);
 	if (ret < 0) {
 		LOG_ERR("invalid MCLK source %d for MSEL", bclk_source);
-		return ret;
+		//return ret;
 	}
 
 	/* get MCLK's rate */

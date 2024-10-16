@@ -99,7 +99,7 @@
 			clock-names = "mclk1";
 
 			interrupt-parent = <&master1>;
-			interrupts = <28>;
+			interrupts = <18>;
 			dai-index = <3>;
 			dmas = <&sdma3 4 0>, <&sdma3 5 0>;
 			dma-names = "tx", "rx";
