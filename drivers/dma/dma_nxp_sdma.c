@@ -336,13 +336,13 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	return 0;
 }
 
-/*static*/ int dma_nxp_sdma_stop(const struct device *dev, uint32_t channel)
+/*static */int dma_nxp_sdma_stop(const struct device *dev, uint32_t channel)
 {
 	SDMA_StopTransfer(DEV_SDMA_HANDLE(dev, channel));
 	return 0;
 }
 
-/*static*/ int dma_nxp_sdma_start(const struct device *dev, uint32_t channel)
+/* static */int dma_nxp_sdma_start(const struct device *dev, uint32_t channel)
 {
 	const struct sdma_dev_cfg *dev_cfg = dev->config;
 	struct sdma_dev_data *dev_data = dev->data;
@@ -356,9 +356,6 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 	SDMA_SetChannelPriority(dev_cfg->base, channel, 4);
 	SDMA_StartChannelSoftware(dev_cfg->base, channel);
 	
-
-	//dma_nxp_sdma_print_regs(dev, "AT START");
-	//SDMA_StartTransfer(DEV_SDMA_HANDLE(dev, channel));
 	return 0;
 }
 
