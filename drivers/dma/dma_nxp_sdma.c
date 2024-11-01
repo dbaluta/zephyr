@@ -123,6 +123,8 @@ static void dma_nxp_sdma_isr(const void *data)
 
 	/* Ignore channel 0, is used only for download */
 	val = SDMA_GetChannelInterruptStatus(dev_cfg->base) >> 1U;
+	LOG_INF("ISR stat %x", val);
+
 	while (val) {
 		if ((val & 0x1) != 0) {
 			SDMA_ClearChannelInterruptStatus(dev_cfg->base, 1 << i);
@@ -160,6 +162,7 @@ int sdma_set_peripheral_type(struct dma_config *config, sdma_peripheral_t *type)
 	switch (config->dma_slot) {
 	case kSDMA_PeripheralNormal_SP:
 	case kSDMA_PeripheralMultiFifoPDM:
+	case kSDMA_PeripheralMultiFifoSaiRX:
 		*type = config->dma_slot;
 		break;
 	default:
@@ -195,6 +198,8 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	bd = &chan_data->bd_pool[bdIndex];
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
 
+	LOG_INF("Callback called bd count %d\n", bd->count);
+	bd->count = 1536;
 	SDMA_StartChannelSoftware(dev_cfg->base, chan_data->index);
 }
 
@@ -242,6 +247,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 			is_wrap = true;
 		}
 
+		LOG_INF("this is block size %d", block_cfg->block_size);
+	
 		SDMA_ConfigBufferDescriptor(crt_bd,
 			block_cfg->source_address, block_cfg->dest_address,
 			config->source_data_size, block_cfg->block_size,
@@ -257,6 +264,7 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 			       struct dma_config *config)
 {
 	struct sdma_dev_data *dev_data = dev->data;
+	const struct sdma_dev_cfg *dev_cfg = dev->config;
 	struct sdma_channel_data *chan_data;
 	struct dma_block_config *block_cfg;
 	int ret;
@@ -280,6 +288,13 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 		return ret;
 	}
 
+	if (chan_data->peripheral == kSDMA_PeripheralMultiFifoPDM)
+	{
+		SDMA_SetMultiFifoConfig(&chan_data->transfer_cfg, 4, 0);
+		SDMA_EnableSwDone(dev_cfg->base, &chan_data->transfer_cfg, 0,
+					  kSDMA_PeripheralMultiFifoPDM);
+	}
+
 	dma_nxp_sdma_setup_bd(dev, channel, config);
 	ret = dma_nxp_sdma_init_stat(chan_data);
 	if (ret < 0) {
@@ -294,7 +309,7 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 			     block_cfg->source_address,
 			     block_cfg->dest_address,
 			     config->source_data_size, config->dest_data_size,
-			     /* watermark = */64,
+			     /* watermark = */16,
 			     block_cfg->block_size, chan_data->event_source,
 			     chan_data->peripheral, chan_data->transfer_cfg.type);
 
