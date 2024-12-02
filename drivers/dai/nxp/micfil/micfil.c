@@ -12,9 +12,18 @@
 
 #include "fsl_pdm.h"
 
+void do_log(char *str)
+{
+//	LOG_INF("ana");
+}
+
 #define DT_DRV_COMPAT nxp_dai_micfil
 
 LOG_MODULE_REGISTER(nxp_dai_micfil);
+
+#define MICFIL_DMA_HANDSHAKE(inst, dir) \
+	((DT_INST_DMAS_CELL_BY_NAME(inst, dir, channel) & GENMASK(7,0)) | \
+	((DT_INST_DMAS_CELL_BY_NAME(inst, dir, mux) << 8) & GENMASK(15, 8)))
 
 struct dai_nxp_micfil_data {
 	int quality;
@@ -24,6 +33,8 @@ struct dai_nxp_micfil_data {
 struct dai_nxp_micfil_config {
 	PDM_Type *base;
 	pdm_config_t config;
+	pdm_channel_config_t chan_config;
+	const struct dai_properties *rx_props;
 	int irq;
 	void (*irq_config)(void);
 };
@@ -34,6 +45,19 @@ struct micfil_bespoke_config {
 	uint32_t pdm_ch;
 };
 
+void pdm_print_regs(PDM_Type *base) {
+	LOG_INF("CTRL_1 %08x", base->CTRL_1);
+	LOG_INF("CTRL_2 %08x", base->CTRL_2);
+	LOG_INF("STAT %08x", base->STAT);
+	LOG_INF("FIFO_CTRL %08x", base->FIFO_CTRL);
+	LOG_INF("FIFO_STAT %08x", base->FIFO_STAT);
+	LOG_INF("DATA_CH0 %08x", base->DATACH[0]);
+	LOG_INF("DC_CTRL %08x", base->DC_CTRL);
+	LOG_INF("RANGE_CTRL %08x", base->RANGE_CTRL);
+	LOG_INF("RANGE_STAT %08x", base->RANGE_STAT);
+}
+
+#if 0
 /* On DMIC IRQ event trace the status register that contains the status and
  * error bit fields.
  */
@@ -41,6 +65,7 @@ static void dai_nxp_micfil_irq_handler(const void *data)
 {
 }
 
+#endif
 static void dai_nxp_micfil_trigger_start(const struct device *dev)
 {
 	struct dai_nxp_micfil_data *micfil = dev->data;
@@ -48,13 +73,15 @@ static void dai_nxp_micfil_trigger_start(const struct device *dev)
 
 	LOG_INF("dmic_nxp_micfil_start()");
 
-	PDM_Reset(dev_cfg->base);
+	//PDM_Reset(dev_cfg->base);
 
 	/* enable DMA requests */
 	PDM_EnableDMA(dev_cfg->base, true);
 
 	/* enable the module */
 	PDM_Enable(dev_cfg->base, true);
+
+	pdm_print_regs(dev_cfg->base);
 }
 
 static void dai_nxp_micfil_trigger_stop(const struct device *dev)
@@ -68,6 +95,7 @@ static void dai_nxp_micfil_trigger_stop(const struct device *dev)
 
 	/* disable module */
 	PDM_Enable(cfg->base, false);
+
 }
 
 const struct dai_properties
@@ -75,6 +103,16 @@ const struct dai_properties
 			       enum dai_dir dir,
 			       int stream_id)
 {
+	struct dai_nxp_micfil_config *cfg = dev->config;
+
+	LOG_INF("get_properties ... for dir = %d", dir);
+
+	if (dir == DAI_DIR_RX)
+		return cfg->rx_props;
+	else {
+		LOG_ERR("micfil: invalid direction %d", dir);
+		return NULL;
+	}
 }
 
 static int dai_nxp_micfil_trigger(const struct device *dev, enum dai_dir dir,
@@ -95,8 +133,10 @@ static int dai_nxp_micfil_trigger(const struct device *dev, enum dai_dir dir,
 	case DAI_TRIGGER_PAUSE:
 		dai_nxp_micfil_trigger_stop(dev);
 		break;
+	/* nothing to do here, return 0 */
+	case DAI_TRIGGER_PRE_START:
 	case DAI_TRIGGER_COPY:
-		break;
+		return 0;
 	default:
 		LOG_ERR("dai_nxp_micfil_trigger(), invalid trigger cmd %d", cmd);
 		return -EINVAL;
@@ -110,8 +150,9 @@ static int dai_nxp_micfil_get_config(const struct device *dev, struct dai_config
 	struct dai_nxp_micfil_data *micfil = dev->data;
 
 	LOG_INF("... get_config()");
-	memcpy(cfg, &micfil->cfg, sizeof(*cfg));
 
+	memcpy(cfg, &micfil->cfg, sizeof(*cfg));
+	LOG_INF("get_config() ch %d rate %d", cfg->channels, cfg->rate);
 	return 0;
 }
 
@@ -124,13 +165,27 @@ static int dai_nxp_micfil_set_config(const struct device *dev,
 	struct micfil_bespoke_config *micfil_cfg = bespoke_cfg;
 	int i;
 
-	LOG_INF("set_config ch %d rate %d", micfil_cfg->pdm_rate, micfil_cfg->pdm_ch);
+	LOG_INF("set_config ... %x", (int)micfil_cfg);
+	if (micfil_cfg) 
+		LOG_INF("set_config ch %d rate %d", micfil_cfg->pdm_rate, micfil_cfg->pdm_ch);
 
+	dev_cfg->config.qualityMode = kPDM_QualityModeVeryLow0;
+	dev_cfg->config.fifoWatermark = 31;
+	dev_cfg->config.cicOverSampleRate = 16;
+
+	LOG_INF("PDM INit..");
 	PDM_Init(dev_cfg->base, &dev_cfg->config);
 
-	for (i = 0; i < micfil_cfg->pdm_ch; i++)
-		PDM_SetChannelConfig(dev_cfg->base, i, &dev_cfg->config);
-	PDM_SetSampleRateConfig(dev_cfg->base, 0, 48000);
+	for (i = 0; i < micfil_cfg->pdm_ch; i++) {
+		dev_cfg->chan_config.gain = kPDM_DfOutputGain2;
+		dev_cfg->chan_config.cutOffFreq = kPDM_DcRemoverBypass;
+		//dev_cfg->chan_config.outputCutOffFreq = kPDM_DcRemoverBypass;
+		PDM_SetChannelConfig(dev_cfg->base, i, &dev_cfg->chan_config);
+	}
+
+	PDM_SetSampleRateConfig(dev_cfg->base, 24576000, 48000);
+
+	pdm_print_regs(dev_cfg->base);
 
 	return 0;
 }
@@ -142,6 +197,7 @@ static int dai_nxp_micfil_probe(const struct device *dev)
 
 	return 0;
 }
+
 
 static int dai_nxp_micfil_remove(const struct device *dev)
 {
@@ -169,9 +225,15 @@ static int micfil_init(const struct device *dev)
 }
 
 #define DAI_NXP_MICFIL_INIT(inst)							\
+	static const struct dai_properties micfil_rx_props_##inst = {	\
+		.fifo_address = (0x30ca0000 + 0x24),	\
+		.fifo_depth = 32,	\
+		.dma_hs_id = MICFIL_DMA_HANDSHAKE(inst, rx),	\
+	}; \
 	/* static void dai_nxp_micfil_##inst_irq_config(void);	*/			\
 	static const struct dai_nxp_micfil_config dai_nxp_micfil_config_##inst = {		\
 		.base = (PDM_Type *)DT_INST_REG_ADDR(inst),				\
+		.rx_props = &micfil_rx_props_##inst,	\
 		/*.irq_config = dai_nxp_micfil_##inst_irq_config,	*/			\
 	};										\
 	static struct dai_nxp_micfil_data dai_nxp_micfil_data_##inst = {				\
