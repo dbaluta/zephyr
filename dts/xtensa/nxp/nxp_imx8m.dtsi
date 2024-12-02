@@ -119,7 +119,7 @@
 
 			interrupt-parent = <&master2>;
 			interrupts = <13>;
-			dmas = <&sdma3 24 0>;
+			dmas = <&sdma3 24 6>;
 			dma-names = "rx";
 			status = "disabled";
 		};
