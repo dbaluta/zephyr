@@ -73,7 +73,7 @@ static void dai_nxp_micfil_trigger_start(const struct device *dev)
 
 	LOG_INF("dmic_nxp_micfil_start()");
 
-	PDM_Reset(dev_cfg->base);
+	//PDM_Reset(dev_cfg->base);
 
 	/* enable DMA requests */
 	PDM_EnableDMA(dev_cfg->base, true);
@@ -164,7 +164,6 @@ static int dai_nxp_micfil_set_config(const struct device *dev,
 	struct dai_nxp_micfil_config *dev_cfg = dev->config;
 	struct micfil_bespoke_config *micfil_cfg = bespoke_cfg;
 	int i;
-	int ret;
 
 	LOG_INF("set_config ... %x", (int)micfil_cfg);
 	if (micfil_cfg) 
@@ -177,19 +176,14 @@ static int dai_nxp_micfil_set_config(const struct device *dev,
 	LOG_INF("PDM INit..");
 	PDM_Init(dev_cfg->base, &dev_cfg->config);
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < micfil_cfg->pdm_ch; i++) {
 		dev_cfg->chan_config.gain = kPDM_DfOutputGain2;
 		dev_cfg->chan_config.cutOffFreq = kPDM_DcRemoverBypass;
 		//dev_cfg->chan_config.outputCutOffFreq = kPDM_DcRemoverBypass;
 		PDM_SetChannelConfig(dev_cfg->base, i, &dev_cfg->chan_config);
 	}
 
-	ret = PDM_SetSampleRateConfig(dev_cfg->base, 24576000, 48000);
-
-	if (ret != kStatus_Success) {
-		LOG_ERR("Failure to set Sample rate");
-		return -EINVAL;
-	}
+	PDM_SetSampleRateConfig(dev_cfg->base, 24576000, 48000);
 
 	pdm_print_regs(dev_cfg->base);
 
