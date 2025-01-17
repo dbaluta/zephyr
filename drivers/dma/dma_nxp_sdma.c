@@ -123,12 +123,23 @@ static void dma_nxp_sdma_isr(const void *data)
 	struct sdma_dev_data *dev_data = dev->data;
 	const struct sdma_dev_cfg *dev_cfg = dev->config;
 
+	static int64_t timeref;
+	static int count = -1;
+	int64_t diff;
+	
+	count++;
+
+	diff = k_uptime_delta(&timeref);
+	if (count % 100 == 0) {
+		LOG_INF("dma_nxp_sdma_isr() diff %d", (int)diff);
+	}
+
 	/* Clear channel 0 */
 	SDMA_ClearChannelInterruptStatus(dev_cfg->base, 1U);
 
 	/* Ignore channel 0, is used only for download */
 	val = SDMA_GetChannelInterruptStatus(dev_cfg->base) >> 1U;
-	LOG_INF("ISR stat %x", val);
+	//LOG_INF("ISR stat %x", val);
 
 	while (val) {
 		if ((val & 0x1) != 0) {
@@ -208,7 +219,7 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	bd = &chan_data->bd_pool[bdIndex];
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
 
-	LOG_INF("Callback called bd count %d\n", bd->count);
+	//LOG_INF("Callback called bd count %d\n", bd->count);
 	bd->count = 1536;
 	SDMA_StartChannelSoftware(dev_cfg->base, chan_data->index);
 }
@@ -390,6 +401,19 @@ static int dma_nxp_sdma_reload(const struct device *dev, uint32_t channel, uint3
 {
 	struct sdma_dev_data *dev_data = dev->data;
 	struct sdma_channel_data *chan_data;
+#if 1
+	static int64_t timeref;
+	static int count = -1;
+	int64_t diff;
+	
+	count++;
+
+	diff = k_uptime_delta(&timeref);
+	if (count % 100 == 0) {
+		LOG_INF("dma_nxp_sdma_reload diff size %d diff %d",
+			size, (int)diff);
+	}
+#endif
 
 	chan_data = &dev_data->chan[channel];
 
