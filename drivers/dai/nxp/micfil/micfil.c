@@ -12,6 +12,9 @@
 
 #include "fsl_pdm.h"
 
+#define MICFIL_CLK_ROOT 24576000
+#define MICFIL_OSR_DEFAULT	16
+
 void do_log(char *str)
 {
 //	LOG_INF("ana");
@@ -95,7 +98,6 @@ static void dai_nxp_micfil_trigger_stop(const struct device *dev)
 
 	/* disable module */
 	PDM_Enable(cfg->base, false);
-
 }
 
 const struct dai_properties
@@ -172,19 +174,19 @@ static int dai_nxp_micfil_set_config(const struct device *dev,
 
 	dev_cfg->config.qualityMode = kPDM_QualityModeVeryLow0;
 	dev_cfg->config.fifoWatermark = 31;
-	dev_cfg->config.cicOverSampleRate = 16;
+	dev_cfg->config.cicOverSampleRate = MICFIL_OSR_DEFAULT;
 
 	LOG_INF("PDM INit..");
 	PDM_Init(dev_cfg->base, &dev_cfg->config);
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < micfil_cfg->pdm_ch; i++) {
 		dev_cfg->chan_config.gain = kPDM_DfOutputGain2;
 		dev_cfg->chan_config.cutOffFreq = kPDM_DcRemoverBypass;
 		//dev_cfg->chan_config.outputCutOffFreq = kPDM_DcRemoverBypass;
 		PDM_SetChannelConfig(dev_cfg->base, i, &dev_cfg->chan_config);
 	}
 
-	ret = PDM_SetSampleRateConfig(dev_cfg->base, 24576000, 48000);
+	ret = PDM_SetSampleRateConfig(dev_cfg->base, MICFIL_CLK_ROOT, micfil_cfg->pdm_rate);
 
 	if (ret != kStatus_Success) {
 		LOG_ERR("Failure to set Sample rate");

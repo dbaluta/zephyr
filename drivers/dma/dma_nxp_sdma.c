@@ -126,14 +126,15 @@ static void dma_nxp_sdma_isr(const void *data)
 	static int64_t timeref;
 	static int count = -1;
 	int64_t diff;
-	
+
+#if 0
 	count++;
 
 	diff = k_uptime_delta(&timeref);
 	if (count % 100 == 0) {
 		LOG_INF("dma_nxp_sdma_isr() diff %d", (int)diff);
 	}
-
+#endif
 	/* Clear channel 0 */
 	SDMA_ClearChannelInterruptStatus(dev_cfg->base, 1U);
 
@@ -193,15 +194,31 @@ int sdma_set_peripheral_type(struct dma_config *config, sdma_peripheral_t *type)
 	return 0;
 }
 
+void print_bd(sdma_buffer_descriptor_t *bd, int i) {
+#if 1
+	LOG_INF("[%d] addr %x: count %d D %d W %d C %d I %d E %d", i, bd,
+		(int)bd->count, bd->status & kSDMA_BDStatusDone,
+		bd->status & kSDMA_BDStatusWrap,
+		bd->status & kSDMA_BDStatusContinuous,
+		bd->status & kSDMA_BDStatusInterrupt,
+		bd->status & kSDMA_BDStatusError);
+#endif
+}
+
 void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferDone,
 			   uint32_t bdIndex)
 {
 	const struct sdma_dev_cfg *dev_cfg;
 	struct sdma_channel_data *chan_data = userData;
-	sdma_buffer_descriptor_t *bd;
+	sdma_buffer_descriptor_t *bd, *bd1, *bd2;
 	int xfer_size;
+	static int64_t timeref;
+	static int count = -1;
+	int64_t diff;
+	
+	count++;
 
-	dev_cfg = chan_data->dev->config;
+		dev_cfg = chan_data->dev->config;
 
 	xfer_size = chan_data->capacity / chan_data->bd_count;
 
@@ -216,11 +233,30 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 		break;
 	}
 
+	if (count < 5) 
+		sys_cache_data_invd_all();
+
+	bd1 = &chan_data->bd_pool[0];
+	bd2 = &chan_data->bd_pool[1];
+	diff = k_uptime_delta(&timeref);
+
+	if (count < 10) {
+		LOG_INF("callback() bdIndex = %d diff = %d (bd1 %x:%d) (bd2 %x:%d) ", 
+			(int)bdIndex, (int)diff, (int)bd1->status, (int)bd1->count, (int)bd2->status, (int)bd2->count);
+		print_bd(bd1, 0);
+		print_bd(bd2, 1);
+	}
+
+
 	bd = &chan_data->bd_pool[bdIndex];
+	bd->count = 768;
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
+	if (count < 5)
+		sys_cache_data_flush_all();
 
 	//LOG_INF("Callback called bd count %d\n", bd->count);
-	bd->count = 1536;
+	//bd->count = 1536;
+	//
 	SDMA_StartChannelSoftware(dev_cfg->base, chan_data->index);
 }
 
@@ -279,6 +315,8 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 		block_cfg = block_cfg->next_block;
 		crt_bd++;
 	}
+
+	LOG_INF("blk count %d capacity %d", config->block_count, chan_data->capacity);
 }
 
 static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
@@ -289,6 +327,8 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 	struct sdma_channel_data *chan_data;
 	struct dma_block_config *block_cfg;
 	int ret;
+
+	//sys_cache_data_disable();
 
 	if (channel >= FSL_FEATURE_SDMA_MODULE_CHANNEL) {
 		LOG_ERR("sdma_config() invalid channel %d", channel);
@@ -401,7 +441,7 @@ static int dma_nxp_sdma_reload(const struct device *dev, uint32_t channel, uint3
 {
 	struct sdma_dev_data *dev_data = dev->data;
 	struct sdma_channel_data *chan_data;
-#if 1
+#if 0
 	static int64_t timeref;
 	static int count = -1;
 	int64_t diff;
