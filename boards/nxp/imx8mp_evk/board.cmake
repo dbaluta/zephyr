@@ -4,6 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+if (CONFIG_SOF AND CONFIG_BOARD_IMX8MP_EVK_MIMX8ML8_M7_DDR)
+  board_set_rimage_target(imx8m_m7)
+endif()
 if(CONFIG_SOC_MIMX8ML8_ADSP)
   board_set_flasher_ifnset(misc-flasher)
   board_finalize_runner_args(misc-flasher)

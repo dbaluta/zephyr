@@ -15,7 +15,7 @@
 #define REGION_DDR2_BASE_ADDRESS			0x80000000U
 #if defined(CONFIG_CODE_DDR)
 #define REGION_DDR_NONCACHE_BASE_ADDRESS	0x80000000U
-#define REGION_DDR_NONCACHE_SIZE			0x00400000U
+#define REGION_DDR_NONCACHE_SIZE			0x04000000U
 #endif
 
 static const struct arm_mpu_region mpu_regions[] = {

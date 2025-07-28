@@ -68,9 +68,9 @@ static int sai_mclk_config(const struct device *dev,
 		return ret;
 	}
 
-	LOG_DBG("source MCLK is %u", mclk_rate);
+	LOG_INF("source MCLK is %u", mclk_rate);
 
-	LOG_DBG("target MCLK is %u", bespoke->mclk_rate);
+	LOG_INF("target MCLK is %u", bespoke->mclk_rate);
 
 	/* source MCLK rate */
 	mclk_config.mclkSourceClkHz = mclk_rate;
@@ -91,21 +91,27 @@ void sai_isr(const void *parameter)
 {
 	const struct device *dev;
 	struct sai_data *data;
+	static int count = 0;
 
 	dev = parameter;
 	data = dev->data;
 
+	if (count < 3)
+		LOG_WRN("SAI_ISR()-->");
 	/* check for TX FIFO error */
 	if (SAI_TX_RX_STATUS_IS_SET(DAI_DIR_TX, data->regmap, kSAI_FIFOErrorFlag)) {
-		LOG_WRN("FIFO underrun detected");
+		if (count < 3)
+			LOG_WRN("FIFO underrun detected");
 		SAI_TX_RX_STATUS_CLEAR(DAI_DIR_TX, data->regmap, kSAI_FIFOErrorFlag);
 	}
 
 	/* check for RX FIFO error */
 	if (SAI_TX_RX_STATUS_IS_SET(DAI_DIR_RX, data->regmap, kSAI_FIFOErrorFlag)) {
-		LOG_WRN("FIFO overrun detected");
+		if (count < 3)
+			LOG_WRN("FIFO overrun detected");
 		SAI_TX_RX_STATUS_CLEAR(DAI_DIR_RX, data->regmap, kSAI_FIFOErrorFlag);
 	}
+	count++;
 }
 
 static int sai_config_get(const struct device *dev,
@@ -439,7 +445,7 @@ static int sai_config_set(const struct device *dev,
 	 */
 	data->cfg.channels = bespoke->tdm_slots;
 
-	sai_dump_register_data(data->regmap);
+	//sai_dump_register_data(data->regmap);
 
 	return pm_device_runtime_put(dev);
 }
@@ -695,6 +701,7 @@ static void sai_tx_rx_sw_reset(struct sai_data *data,
 	}
 }
 
+//void rdc_do_print_config(void);
 static int sai_trigger_start(const struct device *dev,
 			     enum dai_dir dir)
 {
@@ -706,6 +713,9 @@ static int sai_trigger_start(const struct device *dev,
 	data = dev->data;
 	cfg = dev->config;
 	old_state = sai_get_state(dir, data);
+
+	//LOG_INF("sai_trigger_start() dir = %d", dir);
+
 
 	/* TX and RX should be triggered independently */
 	if (dir != DAI_DIR_RX && dir != DAI_DIR_TX) {
@@ -742,13 +752,17 @@ static int sai_trigger_start(const struct device *dev,
 
 	irq_enable(cfg->irq);
 
+#if 1
 	/* enable error interrupt */
 	SAI_TX_RX_ENABLE_DISABLE_IRQ(dir, data->regmap,
 				     kSAI_FIFOErrorInterruptEnable, true);
+#endif
 
 	/* avoid initial underrun by writing a frame's worth of 0s */
 	if (dir == DAI_DIR_TX) {
-		for (i = 0; i < data->cfg.channels; i++) {
+		//LOG_INF("Writing for chans %d tx_dline %08x\n", data->cfg.channels, cfg->tx_dline);
+
+		for (i = 0; i < 8; i++) {
 			SAI_WriteData(UINT_TO_I2S(data->regmap), cfg->tx_dline, 0x0);
 		}
 	}
@@ -771,6 +785,10 @@ out_enable_dline:
 	/* update the software state of TX/RX */
 	sai_tx_rx_sw_enable_disable(dir, data, true);
 
+	LOG_INF("start on direction %d", dir);
+	//rdc_do_print_config();
+
+	sai_dump_register_data(data->regmap);
 	return 0;
 }
 

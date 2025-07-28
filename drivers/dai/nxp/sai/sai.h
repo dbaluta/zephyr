@@ -549,30 +549,32 @@ static inline void sai_dump_register_data(uint32_t regmap)
 {
 	I2S_Type *base = UINT_TO_I2S(regmap);
 
-	LOG_DBG("TCSR: 0x%x", base->TCSR);
-	LOG_DBG("RCSR: 0x%x", base->RCSR);
+	LOG_INF("TCSR: 0x%x", base->TCSR);
+	LOG_INF("RCSR: 0x%x", base->RCSR);
 
-	LOG_DBG("TCR1: 0x%x", base->TCR1);
-	LOG_DBG("RCR1: 0x%x", base->RCR1);
+	LOG_INF("TCR1: 0x%x", base->TCR1);
+	LOG_INF("RCR1: 0x%x", base->RCR1);
 
-	LOG_DBG("TCR2: 0x%x", base->TCR2);
-	LOG_DBG("RCR2: 0x%x", base->RCR2);
+	LOG_INF("TCR2: 0x%x", base->TCR2);
+	LOG_INF("RCR2: 0x%x", base->RCR2);
 
-	LOG_DBG("TCR3: 0x%x", base->TCR3);
-	LOG_DBG("RCR3: 0x%x", base->RCR3);
+	LOG_INF("TCR3: 0x%x", base->TCR3);
+	LOG_INF("RCR3: 0x%x", base->RCR3);
 
-	LOG_DBG("TCR4: 0x%x", base->TCR4);
-	LOG_DBG("RCR4: 0x%x", base->RCR4);
+	LOG_INF("TCR4: 0x%x", base->TCR4);
+	LOG_INF("RCR4: 0x%x", base->RCR4);
 
-	LOG_DBG("TCR5: 0x%x", base->TCR5);
-	LOG_DBG("RCR5: 0x%x", base->RCR5);
+	LOG_INF("TCR5: 0x%x", base->TCR5);
+	LOG_INF("RCR5: 0x%x", base->RCR5);
 
-	LOG_DBG("TMR: 0x%x", base->TMR);
-	LOG_DBG("RMR: 0x%x", base->RMR);
+	LOG_INF("TMR: 0x%x", base->TMR);
+	LOG_INF("RMR: 0x%x", base->RMR);
 
 #ifdef CONFIG_SAI_HAS_MCLK_CONFIG_OPTION
-	LOG_DBG("MCR: 0x%x", base->MCR);
+	LOG_INF("MCR: 0x%x", base->MCR);
 #endif /* CONFIG_SAI_HAS_MCLK_CONFIG_OPTION */
+
+
 }
 
 #endif /* ZEPHYR_DRIVERS_DAI_NXP_SAI_H_ */
