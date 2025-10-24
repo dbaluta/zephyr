@@ -30,6 +30,13 @@
 	pinctrl-names = "default";
 };
 
+&sai3 {
+	//status = "okay";
+	pinctrl-0 = <&sai3_default>;
+	pinctrl-names = "default";
+};
+
+/*
 &gpio3 {
 	status = "okay";
 };
@@ -37,3 +44,4 @@
 &mailbox0 {
 	status = "okay";
 };
+*/

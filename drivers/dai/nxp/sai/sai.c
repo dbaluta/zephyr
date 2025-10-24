@@ -96,13 +96,20 @@ void sai_isr(const void *parameter)
 	dev = parameter;
 	data = dev->data;
 
-	if (count < 3)
-		LOG_WRN("SAI_ISR()-->");
+//	if (count < 4) {
+//		LOG_WRN("SAI_ISR()-->");
+//	}
 	/* check for TX FIFO error */
 	if (SAI_TX_RX_STATUS_IS_SET(DAI_DIR_TX, data->regmap, kSAI_FIFOErrorFlag)) {
-		if (count < 3)
-			LOG_WRN("FIFO underrun detected");
+		if (count < 2) {
+			//LOG_WRN("FIFO underrun detected");
+			print_sai_context("sai_isr UNDERRUN:");
+		}
 		SAI_TX_RX_STATUS_CLEAR(DAI_DIR_TX, data->regmap, kSAI_FIFOErrorFlag);
+		//if (count > 2)
+		//	SAI_TX_RX_ENABLE_DISABLE_IRQ(0, data->regmap,
+		//			     kSAI_FIFOErrorInterruptEnable, false);
+
 	}
 
 	/* check for RX FIFO error */
@@ -701,6 +708,13 @@ static void sai_tx_rx_sw_reset(struct sai_data *data,
 	}
 }
 
+I2S_Type *my_base;
+
+void print_sai_context(char *s) {
+
+	LOG_INF("%s TBCR %08x TFR %08x", s, my_base->TBCR, my_base->TFR[0]);
+}
+
 //void rdc_do_print_config(void);
 static int sai_trigger_start(const struct device *dev,
 			     enum dai_dir dir)
@@ -714,6 +728,8 @@ static int sai_trigger_start(const struct device *dev,
 	cfg = dev->config;
 	old_state = sai_get_state(dir, data);
 
+
+	I2S_Type *base = UINT_TO_I2S(data->regmap);
 	//LOG_INF("sai_trigger_start() dir = %d", dir);
 
 
@@ -762,7 +778,7 @@ static int sai_trigger_start(const struct device *dev,
 	if (dir == DAI_DIR_TX) {
 		//LOG_INF("Writing for chans %d tx_dline %08x\n", data->cfg.channels, cfg->tx_dline);
 
-		for (i = 0; i < 8; i++) {
+		for (i = 0; i < 2; i++) {
 			SAI_WriteData(UINT_TO_I2S(data->regmap), cfg->tx_dline, 0x0);
 		}
 	}
@@ -785,10 +801,17 @@ out_enable_dline:
 	/* update the software state of TX/RX */
 	sai_tx_rx_sw_enable_disable(dir, data, true);
 
-	LOG_INF("start on direction %d", dir);
 	//rdc_do_print_config();
 
-	sai_dump_register_data(data->regmap);
+	//sai_dump_register_data(data->regmap);
+
+
+	//:LOG_INF("start on direction %d", dir);
+
+	//LOG_INF("sai start _> TBCR %08x TFR %08x", base->TBCR, base->TFR[0]);
+	//LOG_INF("TBCR %08x TFR %08x", base->TBCR, base->TFR[0]);
+	//sai_dump_register_data(data->regmap);
+
 	return 0;
 }
 
@@ -904,6 +927,8 @@ static int sai_init(const struct device *dev)
 
 	device_map(&data->regmap, cfg->regmap_phys, cfg->regmap_size, K_MEM_CACHE_NONE);
 
+
+	my_base = UINT_TO_I2S(data->regmap);
 #ifndef CONFIG_PM_DEVICE_RUNTIME
 	ret = sai_clks_enable_disable(dev, true);
 	if (ret < 0) {

@@ -549,26 +549,32 @@ static inline void sai_dump_register_data(uint32_t regmap)
 {
 	I2S_Type *base = UINT_TO_I2S(regmap);
 
+
+	LOG_INF("VERID:0x%x", base->VERID);
+	LOG_INF("PARAM:0x%x", base->PARAM);
+	LOG_INF("TBCR:0x%x", base->TBCR);
+//	LOG_INF("RBCR:0x%x", base->RBCR);
+	LOG_INF("TFR: 0x08%x", base->TFR[0]);
 	LOG_INF("TCSR: 0x%x", base->TCSR);
-	LOG_INF("RCSR: 0x%x", base->RCSR);
+//	LOG_INF("RCSR: 0x%x", base->RCSR);
 
 	LOG_INF("TCR1: 0x%x", base->TCR1);
-	LOG_INF("RCR1: 0x%x", base->RCR1);
+	//LOG_INF("RCR1: 0x%x", base->RCR1);
 
 	LOG_INF("TCR2: 0x%x", base->TCR2);
-	LOG_INF("RCR2: 0x%x", base->RCR2);
+	//LOG_INF("RCR2: 0x%x", base->RCR2);
 
 	LOG_INF("TCR3: 0x%x", base->TCR3);
-	LOG_INF("RCR3: 0x%x", base->RCR3);
+	//LOG_INF("RCR3: 0x%x", base->RCR3);
 
 	LOG_INF("TCR4: 0x%x", base->TCR4);
-	LOG_INF("RCR4: 0x%x", base->RCR4);
+//	LOG_INF("RCR4: 0x%x", base->RCR4);
 
 	LOG_INF("TCR5: 0x%x", base->TCR5);
-	LOG_INF("RCR5: 0x%x", base->RCR5);
+//	LOG_INF("RCR5: 0x%x", base->RCR5);
 
 	LOG_INF("TMR: 0x%x", base->TMR);
-	LOG_INF("RMR: 0x%x", base->RMR);
+//	LOG_INF("RMR: 0x%x", base->RMR);
 
 #ifdef CONFIG_SAI_HAS_MCLK_CONFIG_OPTION
 	LOG_INF("MCR: 0x%x", base->MCR);

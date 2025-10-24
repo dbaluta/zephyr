@@ -12,7 +12,10 @@
 
 LOG_MODULE_REGISTER(nxp_sdma);
 
+//#undef LOG_INF 
+//#define LOG_INF LOG_DBG
 
+void print_buffer_descriptor(const char *s, int i, sdma_buffer_descriptor_t *bd);
 
 #define DMA_NXP_SDMA_BD_COUNT 2
 #define DMA_NXP_SDMA_CHAN_DEFAULT_PRIO 4
@@ -145,6 +148,9 @@ static int dma_nxp_sdma_produce(struct sdma_channel_data *chan_data, uint32_t by
 	return 0;
 }
 
+void print_sai_context(char *s);
+
+
 static void dma_nxp_sdma_isr(const void *data)
 {
 	uint32_t val, val1;
@@ -165,9 +171,15 @@ static void dma_nxp_sdma_isr(const void *data)
 	/* Ignore channel 0, is used only for download */
 	val = SDMA_GetChannelInterruptStatus(dev_cfg->base);
 	
-
-	if (count1 < 3)
-		LOG_INF("dma_nxp_sdma_sir val %08x val1 %08x\n", val, val1);
+#if 1
+	if (count1 < 10) {
+				//sdma_dump_register_data(dev_cfg->base);
+		LOG_ERR("count #%d: EVTPD %08x val1 :%08x EVTERR    :%08x\n", count1, dev_cfg->base->EVTPEND, val1, dev_cfg->base->EVTERR);
+	//	LOG_ERR("count1: %d dma_nxp_sdma_sir val %08x val1 %08x\n", count1, val, val1);
+		print_sai_context("SDMA:");
+	}
+#endif
+	count1++;
 
 	val = val >> 1U;
 
@@ -175,15 +187,21 @@ static void dma_nxp_sdma_isr(const void *data)
 		if ((val & 0x1) != 0) {
 			chan_data = &dev_data->chan[i];
 
-			sys_cache_data_invd_all();
 
-			bd = &chan_data->bd_pool[0];
-			if (count1 < 1) {
-				//print_buffer_descriptor("interupt", 0, bd);
+			if (count1 < 10) {
+
+
+
+				bd = &chan_data->bd_pool[0];
+				sys_cache_data_invd_range(bd, sizeof(*bd));
+				print_buffer_descriptor("interupt", 0, bd);
+
+				sys_cache_data_invd_range(bd, sizeof(*bd));
+				bd = &chan_data->bd_pool[1];
+				print_buffer_descriptor("interupt", 1, bd);
 				//sdma_dump_register_data(dev_cfg->base);
 			}
 
-			count1++;
 			SDMA_ClearChannelInterruptStatus(dev_cfg->base, 1 << i);
 			SDMA_HandleIRQ(&chan_data->handle);
 
@@ -259,9 +277,9 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 
 	xfer_size = chan_data->capacity / chan_data->bd_count;
 
-	if (count_1 < 1)
-		LOG_INF("Calling callback index %d xfer_size %d\n", bdIndex,
-			xfer_size);
+	if (count_1 < 10)
+		LOG_INF("Calling callback index %d xfer_size %d chan %d\n", bdIndex,
+			xfer_size, chan_data->index);
 	count_1++;
 
 	switch (chan_data->direction) {
@@ -275,20 +293,21 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 		break;
 	}
 
-	sys_cache_data_invd_all();
-
-
 	/* prepare next BD for transfer */
 	bd = &chan_data->bd_pool[bdIndex];
-	if (count_1 < 1)
-		//print_buffer_descriptor("callback", bdIndex, bd);
+
+	sys_cache_data_invd_range(bd, sizeof(*bd));
+	if (count_1 < 3)
+		print_buffer_descriptor("callback1", bdIndex, bd);
 	count_1++;
 
 	bd->count = xfer_size;
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
 
-	sys_cache_data_flush_all();
+	sys_cache_data_flush_range(bd, sizeof(*bd));
 
+	if (count_1 < 3)
+		print_buffer_descriptor("callback2", bdIndex, bd);
 
 	SDMA_StartChannelSoftware(dev_cfg->base, chan_data->index);
 }
@@ -306,7 +325,7 @@ static int dma_nxp_sdma_channel_init(const struct device *dev, uint32_t channel)
 	
 	SDMA_EnableChannelErrorInterrupts(dev_cfg->base, channel);
 
-	sys_cache_data_flush_all();
+	//sys_cache_data_flush_all();
 
 	return 0;
 }
@@ -356,14 +375,16 @@ static void dma_nxp_sdma_setup_bd(const struct device *dev, uint32_t channel,
 			block_cfg->source_address, block_cfg->dest_address,
 			config->source_data_size, block_cfg->block_size,
 			is_last, true, is_wrap, chan_data->transfer_cfg.type);
+		if(is_last)
+			crt_bd->status &= (uint8_t)~kSDMA_BDStatusDone;
 
+		sys_cache_data_flush_range(crt_bd, sizeof(*crt_bd));
 		chan_data->capacity += block_cfg->block_size;
 		block_cfg = block_cfg->next_block;
 
 		print_buffer_descriptor("setup_bd", i, crt_bd);
 		crt_bd++;
 	}
-	sys_cache_data_flush_all();
 }
 
 static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
@@ -374,11 +395,15 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 	struct sdma_channel_data *chan_data;
 	struct dma_block_config *block_cfg;
 	int ret;
+	int i;
 
 	if (channel >= FSL_FEATURE_SDMA_MODULE_CHANNEL) {
 		LOG_ERR("sdma_config() invalid channel %d", channel);
 		return -EINVAL;
 	}
+
+	for (i = 0; i < 50; i++)
+		LOG_INF("This is message number %d\n", i);
 
 	dma_nxp_sdma_channel_init(dev, channel);
 
@@ -430,8 +455,7 @@ static int dma_nxp_sdma_config(const struct device *dev, uint32_t channel,
 	chan_data->transfer_cfg.isSoftTriggerIgnore = false;
 	SDMA_SubmitTransfer(&chan_data->handle, &chan_data->transfer_cfg);
 
-	chan_data->state = SDMA_CHAN_STATE_CONFIGURED;
-	sys_cache_data_flush_all();
+	//sys_cache_data_flush_all();
 
 	return 0;
 }
@@ -450,12 +474,13 @@ static int dma_nxp_sdma_start(const struct device *dev, uint32_t channel)
 
 	chan_data = &dev_data->chan[channel];
 
+	LOG_INF("dma_nxp_sdma_start() chan %d", channel);
+
 	SDMA_SetChannelPriority(dev_cfg->base, channel, DMA_NXP_SDMA_CHAN_DEFAULT_PRIO);
 	SDMA_StartChannelSoftware(dev_cfg->base, channel);
 
 	//sdma_dump_register_data(dev_cfg->base);
 
-	LOG_INF("dma_nxp_sdma_start() chan %d", channel);
 	return 0;
 }
 
