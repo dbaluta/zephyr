@@ -11,6 +11,7 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <soc.h>
+#include <zephyr/cache.h>
 
 #include <zephyr/dt-bindings/rdc/imx_rdc.h>
 
@@ -24,7 +25,8 @@ static void SOC_RdcInit(void)
 	domainId = RDC_GetCurrentMasterDomainId(RDC);
 	/* Only configure the RDC if RDC peripheral write access allowed. */
 	if ((0x1U & RDC_GetPeriphAccessPolicy(RDC, kRDC_Periph_RDC, domainId)) != 0U) {
-		assignment.domainId = M7_DOMAIN_ID;
+		// everything is in domain zero for now
+		assignment.domainId = 0;// M7_DOMAIN_ID; 
 		RDC_SetMasterDomainAssignment(RDC, kRDC_Master_M7, &assignment);
 	}
 
@@ -207,10 +209,20 @@ void soc_early_init_hook(void)
 {
 
 	/* SoC specific RDC settings */
-	SOC_RdcInit();
+	//SOC_RdcInit();
 
 	/* SoC specific Clock settings */
-	SOC_ClockInit();
+	//SOC_ClockInit();
 
-	gpio_init();
+	//gpio_init();
 }
+
+void soc_late_init_hook(void)
+{
+#ifdef CONFIG_CACHE_MANAGEMENT
+	sys_cache_data_enable();
+	sys_cache_instr_enable();
+#endif /* CONFIG_CACHE_MANAGEMENT */
+}
+
+

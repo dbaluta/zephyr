@@ -30,6 +30,14 @@
 	pinctrl-names = "default";
 };
 
+&sai3 {
+         // set from Linux for now
+	//status = "okay";
+	pinctrl-0 = <&sai3_default>;
+	pinctrl-names = "default";
+};
+
+
 &gpio3 {
 	status = "okay";
 };

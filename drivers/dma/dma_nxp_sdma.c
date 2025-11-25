@@ -76,8 +76,15 @@ static int dma_nxp_sdma_init_stat(struct sdma_channel_data *chan_data)
 
 static int dma_nxp_sdma_consume(struct sdma_channel_data *chan_data, uint32_t bytes)
 {
-	if (bytes > chan_data->stat.pending_length)
+	if (bytes > chan_data->stat.pending_length) {
+		LOG_INF("dma_nxp_sdma_consume ERROR Write %d read %d cap %d bytes %d",
+			chan_data->stat.write_position,
+			chan_data->stat.read_position,
+			chan_data->capacity,
+			bytes);
+
 		return -EINVAL;
+	}
 
 	chan_data->stat.read_position += bytes;
 	chan_data->stat.read_position %= chan_data->capacity;
@@ -97,8 +104,15 @@ static int dma_nxp_sdma_consume(struct sdma_channel_data *chan_data, uint32_t by
 
 static int dma_nxp_sdma_produce(struct sdma_channel_data *chan_data, uint32_t bytes)
 {
-	if (bytes > chan_data->stat.free)
+	if (bytes > chan_data->stat.free) {
+		LOG_INF("dma_nxp_sdma_produce ERROR Write %d read %d cap %d bytes %d",
+			chan_data->stat.write_position,
+			chan_data->stat.read_position,
+			chan_data->capacity,
+			bytes);
+
 		return -EINVAL;
+	}
 
 	chan_data->stat.write_position += bytes;
 	chan_data->stat.write_position %= chan_data->capacity;
@@ -416,10 +430,10 @@ static int dma_nxp_sdma_get_attribute(const struct device *dev, uint32_t type, u
 {
 	switch (type) {
 	case DMA_ATTR_BUFFER_SIZE_ALIGNMENT:
-		*val = 4;
+		*val = 32;
 		break;
 	case DMA_ATTR_BUFFER_ADDRESS_ALIGNMENT:
-		*val = 128; /* should be dcache_align */
+		*val = 32; /* should be dcache_align */
 		break;
 	case DMA_ATTR_MAX_BLOCK_COUNT:
 		*val = DMA_NXP_SDMA_BD_COUNT;
@@ -498,7 +512,7 @@ static int dma_nxp_sdma_init(const struct device *dev)
 	static void dma_nxp_sdma_##inst_irq_config(void)		\
 	{								\
 		IRQ_CONNECT(DT_INST_IRQN(inst),				\
-			    DT_INST_IRQ_(inst, priority),		\
+			    DT_INST_IRQ(inst, priority),		\
 			    dma_nxp_sdma_isr, DEVICE_DT_INST_GET(inst), 0);	\
 		irq_enable(DT_INST_IRQN(inst));				\
 	}								\
