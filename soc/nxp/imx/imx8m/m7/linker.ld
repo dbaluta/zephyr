@@ -10,7 +10,7 @@
 MEMORY
      {
 #if defined(CONFIG_CODE_DDR)
-        DDR  (wx) : ORIGIN = 0x80400000, LENGTH = 0x00C00000
+	NONCACHEABLE (rw) : ORIGIN = 0x80400000, LENGTH = 0x00400000
 #else
         DDR  (wx) : ORIGIN = 0x80000000, LENGTH = 0x01000000
 #endif
@@ -26,4 +26,16 @@ SECTIONS
             KEEP(*(.resource_table*))
         } GROUP_LINK_IN(ROMABLE_REGION)
 #endif
+
+/* Place .noncacheable section in NONCACHEABLE region */
+/* Handle NXP NonCacheable section */
+NonCacheable (NOLOAD) :
+{
+    . = ALIGN(32);
+    KEEP(*(NonCacheable))
+    KEEP(*(NonCacheable.*))
+    . = ALIGN(32);
+} > NONCACHEABLE
      }
+
+

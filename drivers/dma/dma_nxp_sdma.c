@@ -47,9 +47,12 @@ struct sdma_dev_data {
 	struct dma_context dma_ctx;
 	atomic_t *channels_atomic;
 	struct sdma_channel_data chan[FSL_FEATURE_SDMA_MODULE_CHANNEL];
-	sdma_buffer_descriptor_t bd_pool[FSL_FEATURE_SDMA_MODULE_CHANNEL][DMA_NXP_SDMA_BD_COUNT]
+	sdma_buffer_descriptor_t (*bd_pool)[DMA_NXP_SDMA_BD_COUNT]
 		__aligned(64);
 };
+
+
+extern int host_count;
 
 static int dma_nxp_sdma_init_stat(struct sdma_channel_data *chan_data)
 {
@@ -76,8 +79,13 @@ static int dma_nxp_sdma_init_stat(struct sdma_channel_data *chan_data)
 
 static int dma_nxp_sdma_consume(struct sdma_channel_data *chan_data, uint32_t bytes)
 {
+	static int cons_count = -1;
+
+	cons_count++;
+
 	if (bytes > chan_data->stat.pending_length) {
-		LOG_INF("dma_nxp_sdma_consume ERROR Write %d read %d cap %d bytes %d",
+		LOG_INF("dma_nxp_consume ERROR #%d cons_count %d Write %d read %d cap %d bytes %d",
+			host_count, cons_count,
 			chan_data->stat.write_position,
 			chan_data->stat.read_position,
 			chan_data->capacity,
@@ -195,6 +203,7 @@ int sdma_set_peripheral_type(struct dma_config *config, sdma_peripheral_t *type)
 	return 0;
 }
 
+
 void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferDone,
 			   uint32_t bdIndex)
 {
@@ -203,13 +212,29 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	sdma_buffer_descriptor_t *bd;
 	int xfer_size;
 
+	int err;
+
+	static int sdma_crt, sdma_prev;
+
+	sdma_crt = k_cycle_get_32();
+
+#if 0
+	if ( (host_count < 50) || ( (sdma_crt - sdma_prev) > 802000) )
+		LOG_INF("sdma_callback #%d, diff %u pending %d [W %d R %d]",
+			host_count, sdma_crt - sdma_prev,
+			chan_data->stat.pending_length,
+			chan_data->stat.write_position,
+			chan_data->stat.read_position);
+#endif
+	sdma_prev = sdma_crt;
+
 	dev_cfg = chan_data->dev->config;
 
 	xfer_size = chan_data->capacity / chan_data->bd_count;
 
 	switch (chan_data->direction) {
 	case MEMORY_TO_PERIPHERAL:
-		dma_nxp_sdma_consume(chan_data, xfer_size);
+		err = dma_nxp_sdma_consume(chan_data, xfer_size);
 		break;
 	case PERIPHERAL_TO_MEMORY:
 		dma_nxp_sdma_produce(chan_data, xfer_size);
@@ -220,8 +245,12 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 
 	/* prepare next BD for transfer */
 	bd = &chan_data->bd_pool[bdIndex];
+
+	//sys_cache_data_invd_range(bd, xfer_size);
 	bd->count = xfer_size;
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
+
+	//sys_cache_data_flush_range(bd, xfer_size);
 
 	SDMA_StartChannelSoftware(dev_cfg->base, chan_data->index);
 }
@@ -409,12 +438,29 @@ static int dma_nxp_sdma_reload(const struct device *dev, uint32_t channel, uint3
 	struct sdma_channel_data *chan_data;
 	unsigned int key;
 
+	static int sdma_reload_crt = 0, sdma_reload_prev = 0;
+
 	chan_data = &dev_data->chan[channel];
+
+	sdma_reload_crt = k_cycle_get_32();
+
+#if 0
+	if ( (host_count < 50) || (sdma_reload_crt - sdma_reload_crt) > 802000)
+
+	LOG_INF("sdma_reload() #%d diff = %u size %d pending %d [W %d R %d]",
+		host_count, sdma_reload_crt - sdma_reload_prev, 
+		size,
+		chan_data->stat.pending_length,
+		chan_data->stat.write_position,
+		chan_data->stat.read_position);
+
+	sdma_reload_prev = sdma_reload_crt;
+#endif
 
 	if (!size) {
 		return 0;
 	}
-
+	
 	key = irq_lock();
 	if (chan_data->direction == MEMORY_TO_PERIPHERAL) {
 		dma_nxp_sdma_produce(chan_data, size);
@@ -501,8 +547,15 @@ static int dma_nxp_sdma_init(const struct device *dev)
 #define DMA_NXP_SDMA_INIT(inst)						\
 	static ATOMIC_DEFINE(dma_nxp_sdma_channels_atomic_##inst,	\
 			     FSL_FEATURE_SDMA_MODULE_CHANNEL);		\
+    AT_NONCACHEABLE_SECTION_ALIGN(                                   \
+        static sdma_buffer_descriptor_t                              \
+        sdma_bd_pool_##inst[FSL_FEATURE_SDMA_MODULE_CHANNEL]         \
+                          [DMA_NXP_SDMA_BD_COUNT],                   \
+        32                                                           \
+    );								     \
 	static struct sdma_dev_data sdma_data_##inst = {		\
 		.channels_atomic = dma_nxp_sdma_channels_atomic_##inst,	\
+		.bd_pool = sdma_bd_pool_##inst,				\
 	};								\
 	static void dma_nxp_sdma_##inst_irq_config(void);		\
 	static const struct sdma_dev_cfg sdma_cfg_##inst = {		\

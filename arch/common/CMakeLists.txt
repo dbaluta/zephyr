@@ -81,11 +81,6 @@ zephyr_linker_sources_ifdef(CONFIG_ARCH_HAS_RAMFUNC_SUPPORT
   ramfunc.ld
 )
 
-zephyr_linker_sources_ifdef(CONFIG_NOCACHE_MEMORY
-  RAM_SECTIONS
-  nocache.ld
-)
-
 if (DEFINED CONFIG_ARCH_SUPPORTS_ROM_OFFSET)
   # Exclamation mark is printable character with lowest number in ASCII table.
   # We are sure that this file will be included as a first.
@@ -120,3 +115,10 @@ if(CONFIG_COVERAGE)
 endif()
 
 zephyr_library_sources_ifdef(CONFIG_SEMIHOST semihost.c)
+
+zephyr_linker_sources_ifdef(CONFIG_NOCACHE_MEMORY
+  RAM_SECTIONS
+  nocache.ld
+)
+
+
