@@ -306,7 +306,7 @@
 		sdma3: dma@30e00000 {
 			compatible = "nxp,sdma";
 			reg = <0x30e00000 DT_SIZE_K(64)>;
-			interrupts = <34 3>;
+			interrupts = <34 5>; /* Lower priority than timer to avoid race condition */
 
 			#dma-cells = <2>;
 			status = "disabled";

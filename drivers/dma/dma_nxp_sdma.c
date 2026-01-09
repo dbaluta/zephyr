@@ -202,8 +202,23 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	struct sdma_channel_data *chan_data = userData;
 	sdma_buffer_descriptor_t *bd;
 	int xfer_size;
-
 	dev_cfg = chan_data->dev->config;
+	static int cnt = -1;
+
+	cnt++;
+
+	static int64_t crt = 0, prev = 0;
+	bd = &chan_data->bd_pool[bdIndex];
+
+	crt = k_cycle_get_32();
+
+	if ( ((crt - prev) > 840000) || ( (crt - prev) < 760000) || ((cnt % 1000) < 20)) {
+		LOG_INF("dma_nxp_sdma_callback cnt #%d diff = %llu",
+			cnt, crt - prev);
+		LOG_INF("BD = %08x ADDR %08x count %d satus %08x", bd, bd->bufferAddr, bd->count, bd->status);
+	}
+
+	prev = crt;
 
 	xfer_size = chan_data->capacity / chan_data->bd_count;
 
@@ -219,7 +234,6 @@ void dma_nxp_sdma_callback(sdma_handle_t *handle, void *userData, bool TransferD
 	}
 
 	/* prepare next BD for transfer */
-	bd = &chan_data->bd_pool[bdIndex];
 	bd->count = xfer_size;
 	bd->status |= (uint8_t)kSDMA_BDStatusDone;
 

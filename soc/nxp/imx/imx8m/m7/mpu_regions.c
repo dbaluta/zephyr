@@ -81,7 +81,7 @@ static const struct arm_mpu_region mpu_regions[] = {
 	/* If run on DDR, configure text and data section to be cacheable */
 	MPU_REGION_ENTRY("DDR_NONCACHE", REGION_DDR_NONCACHE_BASE_ADDRESS,
 					 { ARM_MPU_RASR(0, ARM_MPU_AP_FULL, 1,
-					 0, 1, 1, 0, REGION_DDR_NONCACHE_SIZE) }),
+					 0, 1, 0, 0, REGION_DDR_NONCACHE_SIZE) }),
 #endif
 };
 
